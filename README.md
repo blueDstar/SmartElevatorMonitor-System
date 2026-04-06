@@ -1,70 +1,70 @@
-# Getting Started with Create React App
+# <div align="center"> Intelligent Elevator Monitoring System</div>
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+<div align="center">
 
-## Available Scripts
+### A full-stack smart surveillance platform for elevator safety, personnel recognition, and event monitoring
 
-In the project directory, you can run:
+<br/>
 
-### `npm start`
+![React](https://img.shields.io/badge/Frontend-React-61DAFB?style=for-the-badge&logo=react&logoColor=black)
+![Flask](https://img.shields.io/badge/Backend-Flask-000000?style=for-the-badge&logo=flask&logoColor=white)
+![Python](https://img.shields.io/badge/Language-Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![C++](https://img.shields.io/badge/Core-C%2B%2B-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white)
+![MongoDB](https://img.shields.io/badge/Database-MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+</div>
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+---
 
-### `npm test`
+## 📌 Overview
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+**Intelligent Elevator Monitoring System** is a full-stack software project designed to enhance elevator security and operational safety through **computer vision**, **personnel recognition**, **event logging**, and **real-time alert detection**.
 
-### `npm run build`
+This system combines a **React frontend**, a **Flask backend**, and a **C++ secure core module** to deliver a monitoring platform that is both practical and scalable.  
+To improve protection of critical business logic, sensitive processing functions are implemented in **native C++** and exposed to Python through a compiled **`.pyd` extension module**.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+---
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## ✨ Key Features
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### 🔍 Real-Time Monitoring
+- Monitor elevator-related activities through camera input
+- Display processed information through an interactive dashboard
+- Support continuous observation and event tracking
 
-### `npm run eject`
+### 👤 Personnel Recognition
+- Recognize registered personnel
+- Manage personnel records and metadata
+- Associate recognized identities with elevator events
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### 📝 Event Logging
+- Record event history with timestamps and related attributes
+- Store structured logs for traceability and later analysis
+- Support systematic review of elevator activity
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### 🚨 Safety Alert Detection
+- Detect abnormal situations and safety-related incidents
+- Generate alerts for suspicious or high-risk conditions
+- Improve situational awareness in restricted environments
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### 🔐 Secure Core Processing
+- Protect important logic by moving it into a native C++ module
+- Reduce direct exposure of sensitive implementation details
+- Bridge Python and C++ using **pybind11**
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+---
 
-## Learn More
+## 🏗️ System Architecture
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+```text
++------------------+        +------------------+        +----------------------+
+|   React Frontend | <----> |   Flask Backend  | <----> |  C++ Secure Core     |
+| Dashboard / UI   |        | API / Services   |        | .pyd Native Module   |
++------------------+        +------------------+        +----------------------+
+         |                           |                            |
+         |                           |                            |
+         v                           v                            v
+                 +--------------------------------------+
+                 |              MongoDB                 |
+                 | Personnel Data / Event Logs / Alerts |
+                 +--------------------------------------+
