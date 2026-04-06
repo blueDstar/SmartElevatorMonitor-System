@@ -1,0 +1,3 @@
+person_id,ho_ten,ma_nv,bo_phan,ngay_sinh,emb_file
+1,Nguyen Van Dat,05,Chatbot AI / 05,2004-02-15,embeddings\person_1.npy
+2,Bui Minh Tai,02,Vision AI / 05,2004-11-19,embeddings\person_2.npy

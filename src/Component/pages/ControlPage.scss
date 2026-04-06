@@ -1,0 +1,26 @@
+.control-page {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.control-page__monitor,
+.control-page__chatbot {
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 1180px) {
+  .control-page {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .control-page__monitor,
+  .control-page__chatbot {
+    min-height: 420px;
+  }
+}

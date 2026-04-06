@@ -1,0 +1,645 @@
+// ─────────────────────────────────────────────────────────────
+// MaintenancePanel.scss  —  redesigned
+// Aesthetic: industrial command-center, deep navy + amber alerts
+// All class names unchanged — only visual upgrade
+// ─────────────────────────────────────────────────────────────
+
+// ── TOKENS ──────────────────────────────────────────────────
+$bg-deep:      rgba(4, 10, 22, 1);
+$bg-card:      rgba(6, 14, 28, 0.92);
+$bg-item:      rgba(8, 19, 38, 0.9);
+$bg-item-alt:  rgba(10, 22, 44, 0.86);
+
+$border-soft:  rgba(58, 130, 255, 0.13);
+$border-mid:   rgba(72, 160, 255, 0.22);
+$border-glow:  rgba(84, 196, 255, 0.35);
+
+$glow-blue:    rgba(0, 140, 255, 0.18);
+$glow-cyan:    rgba(0, 212, 255, 0.12);
+
+$accent:       rgba(18, 184, 255, 1);
+$accent2:      rgba(44, 123, 255, 1);
+$cyan:         rgba(0, 220, 255, 1);
+
+$ok:           rgba(56, 230, 170, 1);
+$ok-dim:       rgba(56, 230, 170, 0.12);
+$ok-border:    rgba(56, 230, 170, 0.26);
+
+$warn:         rgba(255, 188, 60, 1);
+$warn-dim:     rgba(255, 188, 60, 0.1);
+$warn-border:  rgba(255, 188, 60, 0.28);
+
+$danger:       rgba(255, 80, 80, 1);
+$danger-dim:   rgba(255, 80, 80, 0.1);
+$danger-border:rgba(255, 80, 80, 0.28);
+
+$text-bright:  rgba(238, 248, 255, 1);
+$text-main:    rgba(210, 234, 252, 1);
+$text-sub:     rgba(148, 182, 210, 1);
+$text-dim:     rgba(100, 136, 168, 1);
+
+// ── PANEL ROOT ───────────────────────────────────────────────
+.maintenance-panel {
+  height: auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: visible;
+}
+
+// ── TOP BAR ──────────────────────────────────────────────────
+.maintenance-panel__top {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  background: $bg-card;
+  border: 1px solid $border-soft;
+  box-shadow:
+    inset 0 0 40px $glow-blue,
+    inset 0 -1px 0 rgba(255,255,255,0.04),
+    0 20px 50px rgba(0, 0, 0, 0.32);
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+
+  // Corner accent lines
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    border-radius: 2px;
+  }
+  &::before {
+    top: 0; left: 0;
+    width: 60px; height: 2px;
+    background: linear-gradient(90deg, $accent, transparent);
+  }
+  &::after {
+    top: 0; left: 0;
+    width: 2px; height: 40px;
+    background: linear-gradient(180deg, $accent, transparent);
+  }
+}
+
+.maintenance-panel__intro {
+  min-width: 0;
+}
+
+.maintenance-panel__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(0, 119, 255, 0.12);
+  border: 1px solid rgba(65, 173, 255, 0.22);
+  color: rgba(141, 214, 255, 1);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+
+  &::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: $accent;
+    box-shadow: 0 0 6px $accent;
+    animation: pulseDot 2s ease-in-out infinite;
+  }
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.7); }
+}
+
+.maintenance-panel__intro h3 {
+  margin: 10px 0 6px;
+  font-size: 28px;
+  line-height: 1.15;
+  color: $text-bright;
+  letter-spacing: -0.01em;
+}
+
+.maintenance-panel__intro p {
+  margin: 0;
+  color: $text-sub;
+  font-size: 13.5px;
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.maintenance-panel__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.maintenance-panel__actions button {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid $border-mid;
+  background: rgba(11, 29, 56, 0.88);
+  color: $text-main;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: 0.2s ease;
+  position: relative;
+  overflow: hidden;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(18, 184, 255, 0.08), transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  &:hover {
+    border-color: $border-glow;
+    color: $text-bright;
+    box-shadow: 0 0 20px rgba(0, 166, 255, 0.18), inset 0 0 12px rgba(18, 184, 255, 0.06);
+    &::after { opacity: 1; }
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &:first-child {
+    background: linear-gradient(135deg, rgba(18, 184, 255, 0.18), rgba(44, 123, 255, 0.18));
+    border-color: rgba(84, 196, 255, 0.32);
+  }
+}
+
+.maintenance-panel__error {
+  padding: 13px 16px;
+  border-radius: 14px;
+  background: $danger-dim;
+  border: 1px solid $danger-border;
+  color: rgba(255, 180, 180, 1);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  &::before {
+    content: '⚠';
+    font-size: 15px;
+    color: $danger;
+    flex-shrink: 0;
+  }
+}
+
+// ── BODY LAYOUT ──────────────────────────────────────────────
+.maintenance-panel__body {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.maintenance-panel__main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.maintenance-panel__side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+// ── CARDS ─────────────────────────────────────────────────────
+.maintenance-card {
+  border-radius: 22px;
+  background: $bg-card;
+  border: 1px solid $border-soft;
+  box-shadow:
+    inset 0 0 30px $glow-blue,
+    0 16px 44px rgba(0, 0, 0, 0.26);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+
+  // Subtle top shimmer
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 16px; right: 16px;
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent,
+      rgba(130, 200, 255, 0.18),
+      rgba(80, 180, 255, 0.12),
+      transparent
+    );
+  }
+}
+
+.maintenance-card__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: $text-bright;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(64, 130, 255, 0.1);
+
+  // Icon accent bar
+  &::before {
+    content: '';
+    width: 3px;
+    height: 16px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, $accent, $accent2);
+    flex-shrink: 0;
+    box-shadow: 0 0 8px rgba(18, 184, 255, 0.4);
+  }
+}
+
+.maintenance-card__content {
+  min-width: 0;
+}
+
+.maintenance-card__content--logs {
+  max-height: 290px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.maintenance-card__content--metrics {
+  overflow: visible;
+}
+
+.maintenance-card__content--plan {
+  overflow: visible;
+}
+
+// ── STATUS LIST ───────────────────────────────────────────────
+.maintenance-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.maintenance-status-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: $bg-item;
+  border: 1px solid $border-soft;
+  min-width: 0;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  position: relative;
+
+  // Left color-coded stripe
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 20%; bottom: 20%;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+    background: $border-soft;
+    transition: background 0.2s;
+  }
+
+  &:hover {
+    border-color: $border-mid;
+    box-shadow: 0 4px 18px rgba(0, 100, 255, 0.1);
+  }
+
+  // Variant stripes per status type — applied via JS strong class
+  &:has(.status-ok)::before      { background: $ok;     box-shadow: 0 0 8px rgba(56, 230, 170, 0.4); }
+  &:has(.status-warning)::before { background: $warn;   box-shadow: 0 0 8px rgba(255, 188, 60, 0.4); }
+  &:has(.status-danger)::before  { background: $danger; box-shadow: 0 0 8px rgba(255, 80, 80, 0.4); }
+}
+
+.maintenance-status-item__left {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 8px;
+}
+
+.maintenance-status-item__label {
+  color: $text-main;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.maintenance-status-item__detail {
+  color: $text-dim;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+// Status value chips
+.status-ok,
+.status-warning,
+.status-danger {
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.status-ok {
+  color: $ok;
+  background: $ok-dim;
+  border: 1px solid $ok-border;
+  box-shadow: 0 0 10px rgba(56, 230, 170, 0.12);
+}
+
+.status-warning {
+  color: $warn;
+  background: $warn-dim;
+  border: 1px solid $warn-border;
+  box-shadow: 0 0 10px rgba(255, 188, 60, 0.12);
+}
+
+.status-danger {
+  color: $danger;
+  background: $danger-dim;
+  border: 1px solid $danger-border;
+  box-shadow: 0 0 10px rgba(255, 80, 80, 0.12);
+}
+
+// ── LOG LINES ─────────────────────────────────────────────────
+.maintenance-mini-line {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  margin-bottom: 6px;
+  background: $bg-item;
+  border: 1px solid rgba(60, 120, 200, 0.1);
+  transition: background 0.15s, border-color 0.15s;
+
+  &:hover {
+    background: $bg-item-alt;
+    border-color: $border-soft;
+  }
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  span {
+    color: $text-dim;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    padding-top: 2px;
+    line-height: 1.4;
+  }
+
+  strong {
+    color: $text-main;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+}
+
+.maintenance-level {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  align-self: flex-start;
+  margin-top: 1px;
+}
+
+.maintenance-level--info {
+  color: rgba(130, 210, 255, 1);
+  background: rgba(0, 140, 255, 0.1);
+  border: 1px solid rgba(80, 180, 255, 0.2);
+}
+
+.maintenance-level--warning {
+  color: $warn;
+  background: $warn-dim;
+  border: 1px solid $warn-border;
+}
+
+.maintenance-level--error {
+  color: $danger;
+  background: $danger-dim;
+  border: 1px solid $danger-border;
+}
+
+// ── METRICS GRID ──────────────────────────────────────────────
+.maintenance-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.maintenance-metric {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: $bg-item;
+  border: 1px solid $border-soft;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+
+  // Glow corner
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: -10px; right: -10px;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(18, 184, 255, 0.1), transparent 70%);
+    pointer-events: none;
+  }
+
+  &:hover {
+    border-color: $border-mid;
+    box-shadow: 0 4px 16px rgba(0, 100, 255, 0.1);
+  }
+
+  span {
+    display: block;
+    color: $text-dim;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  strong {
+    display: block;
+    margin-top: 8px;
+    color: $text-bright;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.2;
+    word-break: break-word;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+// ── PLAN ITEMS ────────────────────────────────────────────────
+.maintenance-plan-item {
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: $bg-item;
+  border: 1px solid $border-soft;
+  margin-bottom: 10px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+
+  // Priority left border (overridden per priority class below)
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    border-radius: 0;
+    background: $border-soft;
+  }
+
+  &:has(.priority--high)::before   { background: $danger; box-shadow: 0 0 10px rgba(255,80,80,0.4); }
+  &:has(.priority--medium)::before { background: $warn;   box-shadow: 0 0 10px rgba(255,188,60,0.4); }
+  &:has(.priority--low)::before    { background: $ok;     box-shadow: 0 0 10px rgba(56,230,170,0.4); }
+
+  &:hover {
+    border-color: $border-mid;
+    box-shadow: 0 4px 20px rgba(0, 100, 255, 0.1);
+  }
+
+  &:last-child { margin-bottom: 0; }
+
+  strong {
+    display: block;
+    margin-top: 8px;
+    color: $text-bright;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  p {
+    margin: 8px 0 0;
+    color: $text-sub;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+}
+
+.maintenance-plan-item__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  span {
+    color: $text-dim;
+    font-size: 12px;
+    font-weight: 500;
+  }
+}
+
+.priority {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-style: normal;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.priority--high {
+  color: $danger;
+  background: $danger-dim;
+  border: 1px solid $danger-border;
+}
+
+.priority--medium {
+  color: $warn;
+  background: $warn-dim;
+  border: 1px solid $warn-border;
+}
+
+.priority--low {
+  color: $ok;
+  background: $ok-dim;
+  border: 1px solid $ok-border;
+}
+
+// ── RESPONSIVE ────────────────────────────────────────────────
+@media (max-width: 1300px) {
+  .maintenance-panel__top {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+  .maintenance-panel__actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1180px) {
+  .maintenance-panel__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .maintenance-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .maintenance-panel__actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .maintenance-panel__actions button {
+    flex: 1 1 100%;
+  }
+  .maintenance-mini-line {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

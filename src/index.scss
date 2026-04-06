@@ -1,0 +1,320 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  min-height: 100vh;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  background: rgba(2, 6, 13, 1);
+  color: rgba(238, 247, 255, 1);
+}
+
+body {
+  overflow: auto;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.system-shell {
+  position: relative;
+  height: 100vh;
+  overflow: hidden; /* ← không scroll ở đây nữa */
+  background:
+    radial-gradient(circle at 12% 18%, rgba(0, 132, 255, 0.16), rgba(0, 132, 255, 0)),
+    radial-gradient(circle at 84% 20%, rgba(0, 212, 255, 0.12), rgba(0, 212, 255, 0)),
+    linear-gradient(135deg, rgba(2, 7, 17, 1), rgba(7, 17, 31, 1) 56%, rgba(2, 6, 13, 1));
+  padding: 14px;
+}
+
+.system-bg-glow {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+.glow-a {
+  width: 280px;
+  height: 280px;
+  left: -80px;
+  top: 80px;
+  background: rgba(0, 149, 255, 0.18);
+}
+
+.glow-b {
+  width: 320px;
+  height: 320px;
+  right: -90px;
+  bottom: 40px;
+  background: rgba(0, 212, 255, 0.14);
+}
+
+.dashboard-shell {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%; /* ← phải fill hết chiều cao system-shell */
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.dashboard-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto; /* ← scroll chỉ ở đây */
+  overflow-x: hidden;
+}
+
+.dashboard-topbar {
+  width: 100%;
+  min-height: 94px;
+  border-radius: 24px;
+  background: rgba(6, 14, 28, 0.9);
+  border: 1px solid rgba(64, 153, 255, 0.16);
+  box-shadow:
+    inset 0 0 28px rgba(0, 145, 255, 0.05),
+    0 18px 42px rgba(0, 0, 0, 0.28);
+  padding: 14px 18px;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 250px;
+  align-items: center;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+
+.dashboard-topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  h1 {
+    margin: 0;
+    font-size: 22px;
+    color: rgba(239, 248, 255, 1);
+    line-height: 1.1;
+  }
+
+  p {
+    margin: 3px 0 0;
+    color: rgba(140, 176, 204, 1);
+    font-size: 13px;
+    line-height: 1.2;
+  }
+}
+
+.dashboard-topbar__brand-logo {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 0 14px rgba(0, 166, 255, 0.22));
+}
+
+.dashboard-topbar__page-meta {
+  text-align: center;
+  min-width: 0;
+
+  h2 {
+    margin: 6px 0 4px;
+    font-size: clamp(22px, 3vw, 36px);
+    color: rgba(238, 248, 255, 1);
+    line-height: 1.08;
+  }
+
+  p {
+    margin: 0;
+    color: rgba(151, 180, 204, 1);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+}
+
+.dashboard-topbar__badge {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(141, 214, 255, 1);
+  text-transform: uppercase;
+  border: 1px solid rgba(76, 173, 255, 0.22);
+  background: rgba(0, 119, 255, 0.1);
+}
+
+.dashboard-topbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dashboard-user-chip {
+  padding: 7px 20px;
+  border-radius: 12px;
+  background: rgba(6, 15, 30, 0.82);
+  border: 1px solid rgb(3, 167, 255);
+
+  strong {
+
+    display: block;
+    color: rgba(233, 246, 255, 1);
+    font-size: 13px;
+    text-align: center;
+    letter-spacing: 0.12em;
+  }
+}
+
+.dashboard-user-chip__label {
+  display: block;
+  margin-bottom: 2px;
+  color: rgba(131, 164, 191, 1);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+
+.dashboard-logout-btn {
+  height: 50px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  color: rgba(6, 17, 31, 1);
+  background: linear-gradient(
+    135deg,
+    rgba(18, 184, 255, 1),
+    rgba(44, 123, 255, 1)
+  );
+  box-shadow:
+    0 10px 26px rgba(0, 120, 255, 0.28),
+    0 0 18px rgba(18, 184, 255, 0.15);
+}
+
+.dashboard-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+@media (max-width: 1180px) {
+  body {
+    overflow: auto;
+  }
+
+  .system-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible; /* mobile: cuộn toàn trang bình thường */
+  }
+
+  .dashboard-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .dashboard-main {
+    overflow: visible; /* mobile: không cần scroll riêng, để trang cuộn */
+  }
+
+  .dashboard-topbar {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+
+  .dashboard-topbar__page-meta {
+    text-align: left;
+  }
+
+  .dashboard-topbar__actions {
+    justify-content: flex-start;
+  }
+
+  .dashboard-content {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .system-shell {
+    padding: 12px;
+  }
+
+  .dashboard-topbar {
+    padding: 14px;
+  }
+
+  .dashboard-topbar__actions {
+    flex-wrap: wrap;
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 200, 255, 0.9) rgba(5, 10, 18, 0.95); /* thumb track */
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 0px; 
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(5, 10, 18, 0.95);
+  border-radius: 999px;
+  box-shadow: inset 0 0 6px rgba(0, 180, 255, 0.08);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(0, 245, 255, 0.95),
+    rgba(0, 140, 255, 0.95)
+  );
+  border-radius: 999px;
+  border: 2px solid rgba(5, 10, 18, 0.95);
+  box-shadow:
+    0 0 8px rgba(0, 200, 255, 0.55),
+    0 0 14px rgba(0, 140, 255, 0.35);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(80, 255, 255, 1),
+    rgba(0, 170, 255, 1)
+  );
+  box-shadow:
+    0 0 10px rgba(0, 220, 255, 0.75),
+    0 0 18px rgba(0, 140, 255, 0.5);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

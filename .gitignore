@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# env files
+.env
+.env.*
+**/.env
+**/.env.*
+*.env.example
+**/*.env.example
+
+# python cache
+__pycache__/
+*.pyc
+
+# build artifacts
+build/
+dist/
+*.egg-info/
