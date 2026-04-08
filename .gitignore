@@ -17,3 +17,9 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+
+# model files
+*.gguf
+*.pt
+*.pth
+*.onnx
