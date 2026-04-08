@@ -30,6 +30,11 @@ function CameraPanel() {
   const [previewAvailable, setPreviewAvailable] = useState(false);
   const [streamNonce, setStreamNonce] = useState(Date.now());
 
+  const [userCameraActive, setUserCameraActive] = useState(false);
+  const [userCameraError, setUserCameraError] = useState('');
+  const [userCameraDetections, setUserCameraDetections] = useState([]);
+  const [userCameraUpdatedAt, setUserCameraUpdatedAt] = useState(null);
+
   const [logDrawerOpen, setLogDrawerOpen] = useState(false);
   const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
 
@@ -45,6 +50,10 @@ function CameraPanel() {
 
   const socketRef = useRef(null);
   const statusIntervalRef = useRef(null);
+  const userVideoRef = useRef(null);
+  const userCanvasRef = useRef(null);
+  const userMediaStreamRef = useRef(null);
+  const userCaptureIntervalRef = useRef(null);
 
   const streamUrl = useMemo(
     () => `${API_BASE}/api/camera/stream?ts=${streamNonce}`,
@@ -228,6 +237,92 @@ function CameraPanel() {
     });
     return res.json();
   };
+
+  const sendUserCameraFrame = useCallback(async () => {
+    if (!userCameraActive || !userVideoRef.current || !userCanvasRef.current) {
+      return;
+    }
+
+    try {
+      const video = userVideoRef.current;
+      const canvas = userCanvasRef.current;
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      if (!width || !height) {
+        return;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, width, height);
+      const imageBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+      const response = await fetch(`${API_BASE}/api/camera/user-frame`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: imageBase64 }),
+      });
+      const payload = await response.json();
+
+      if (payload.success) {
+        setUserCameraDetections(payload.detections || []);
+        setUserCameraError('');
+        setUserCameraUpdatedAt(Date.now());
+      } else {
+        setUserCameraError(payload.error || 'Inference thất bại');
+      }
+    } catch (err) {
+      setUserCameraError(err.message || 'Lỗi gửi frame');
+    }
+  }, [userCameraActive]);
+
+  const startUserCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      userMediaStreamRef.current = stream;
+      if (userVideoRef.current) {
+        userVideoRef.current.srcObject = stream;
+        await userVideoRef.current.play();
+      }
+      setUserCameraActive(true);
+      setUserCameraError('');
+      setUserCameraDetections([]);
+      setUserCameraUpdatedAt(Date.now());
+
+      if (userCaptureIntervalRef.current) {
+        clearInterval(userCaptureIntervalRef.current);
+      }
+      userCaptureIntervalRef.current = window.setInterval(sendUserCameraFrame, 2500);
+      sendUserCameraFrame();
+    } catch (error) {
+      setUserCameraError(error.message || 'Không thể mở webcam người dùng');
+      setUserCameraActive(false);
+    }
+  };
+
+  const stopUserCamera = () => {
+    if (userCaptureIntervalRef.current) {
+      clearInterval(userCaptureIntervalRef.current);
+      userCaptureIntervalRef.current = null;
+    }
+    const stream = userMediaStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      userMediaStreamRef.current = null;
+    }
+    if (userVideoRef.current) {
+      userVideoRef.current.srcObject = null;
+    }
+    setUserCameraActive(false);
+    setUserCameraError('');
+  };
+
+  useEffect(() => {
+    return () => {
+      stopUserCamera();
+    };
+  }, []);
 
   const runAction = async (label, runner, options = {}) => {
     if (busyAction) return;
@@ -505,6 +600,64 @@ function CameraPanel() {
 
           <div className="camera-preview-card__body">
             {renderPreviewContent()}
+          </div>
+        </div>
+
+        <div className="camera-preview-card camera-preview-card--user">
+          <div className="camera-preview-card__header">
+            <div>
+              <h4>Webcam người dùng</h4>
+              <span>
+                {userCameraActive ? 'Đang mở webcam' : 'Chưa mở webcam người dùng'}
+              </span>
+            </div>
+          </div>
+
+          <div className="camera-preview-card__body camera-preview-card__body--user">
+            <video ref={userVideoRef} autoPlay muted playsInline className="camera-user-video" />
+            <canvas ref={userCanvasRef} style={{ display: 'none' }} />
+
+            <div className="camera-user-controls">
+              <button type="button" onClick={startUserCamera} disabled={userCameraActive || Boolean(busyAction)}>
+                Mở webcam
+              </button>
+              <button type="button" onClick={stopUserCamera} disabled={!userCameraActive}>
+                Dừng webcam
+              </button>
+              <button type="button" onClick={sendUserCameraFrame} disabled={!userCameraActive}>
+                Gửi frame nhận diện
+              </button>
+            </div>
+
+            {userCameraError && (
+              <div className="camera-user-error">Lỗi camera: {userCameraError}</div>
+            )}
+
+            {userCameraUpdatedAt && (
+              <div className="camera-user-status">
+                <span>Last inference: {new Date(userCameraUpdatedAt).toLocaleTimeString()}</span>
+              </div>
+            )}
+
+            <div className="camera-user-detections">
+              <div className="camera-user-detections__header">
+                <strong>Kết quả nhận diện</strong>
+                <span>{userCameraDetections.length} đối tượng</span>
+              </div>
+              {userCameraDetections.length === 0 ? (
+                <div className="camera-user-detections__empty">Không phát hiện đối tượng nào.</div>
+              ) : (
+                <div className="camera-user-detections__list">
+                  {userCameraDetections.map((item, index) => (
+                    <div className="camera-user-detection-item" key={`${item.class_id}_${index}`}>
+                      <span>#{index + 1}</span>
+                      <span>Class: {item.class_id ?? 'unknown'}</span>
+                      <span>Conf: {(item.confidence || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

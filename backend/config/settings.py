@@ -32,19 +32,19 @@ class Settings:
 
     mongo_uri: str = os.getenv(
         "MONGO_URI",
-        "yourUri",
+        "mongodb+srv://SmartElevator:ElevatorMonitor@elevatormonitor.t5ptcsh.mongodb.net/?appName=ElevatorMonitor",
     )
-    database_name: str = os.getenv("DATABASE_NAME", "yourDatabasename")
-    personnels_collection: str = os.getenv("PERSONNELS_COLLECTION", "yourpersonnels")
-    events_collection: str = os.getenv("EVENTS_COLLECTION", "yourEvents")
-    account_collection: str = os.getenv("ACCOUNT_COLLECTION", "yourAccount")
+    database_name: str = os.getenv("DATABASE_NAME", "Elevator_Management")
+    personnels_collection: str = os.getenv("PERSONNELS_COLLECTION", "personnels")
+    events_collection: str = os.getenv("EVENTS_COLLECTION", "events")
+    account_collection: str = os.getenv("ACCOUNT_COLLECTION", "account")
 
     chatbot_enabled: bool = _to_bool(os.getenv("CHATBOT_ENABLED", "true"), True)
     vision_enabled: bool = _to_bool(os.getenv("VISION_ENABLED", "true"), True)
 
     chat_model_path: str = os.getenv(
         "CHAT_MODEL_PATH",
-        r"Modelchatbot",
+        str(BASE_DIR / "model" / "Elevator_Assistant.Q4_K_M.gguf"),
     )
     yolo_det_model_path: str = os.getenv(
         "YOLO_DET_MODEL_PATH",

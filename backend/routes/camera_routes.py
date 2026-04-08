@@ -1,3 +1,7 @@
+import base64
+
+import cv2
+import numpy as np
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 from services import camera_service
 
@@ -23,6 +27,29 @@ def camera_stream():
             "Expires": "0",
         },
     )
+
+
+@camera_bp.route("/api/camera/user-frame", methods=["POST"])
+def camera_user_frame():
+    data = request.get_json(silent=True) or {}
+    image_base64 = (data.get("image_base64") or "").strip()
+    if not image_base64:
+        return jsonify({"success": False, "error": "Thiếu image_base64"}), 400
+
+    if "," in image_base64:
+        _, image_base64 = image_base64.split(",", 1)
+
+    try:
+        image_data = base64.b64decode(image_base64)
+        np_img = np.frombuffer(image_data, np.uint8)
+        frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+        if frame is None:
+            raise ValueError("Không giải mã được hình ảnh")
+
+        result = camera_service.infer_user_frame(frame)
+        return jsonify(result)
+    except Exception as ex:
+        return jsonify({"success": False, "error": str(ex)}), 500
 
 
 @camera_bp.route("/api/camera/status", methods=["GET"])

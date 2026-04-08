@@ -66,6 +66,7 @@ class CameraService:
 
         self._preview_lock = threading.Lock()
         self._latest_frame_jpeg: bytes | None = None
+        self._user_model = None
 
         self._preview_condition = threading.Condition()
         self._last_preview_emit_ts = 0.0
@@ -80,6 +81,44 @@ class CameraService:
     def get_latest_preview_bytes(self) -> bytes | None:
         with self._preview_lock:
             return self._latest_frame_jpeg
+
+    def infer_user_frame(self, frame) -> dict:
+        if frame is None:
+            return {"success": False, "error": "Frame is missing"}
+
+        try:
+            if self._user_model is None:
+                self._user_model = YOLO(settings.yolo_det_model_path)
+
+            result = self._user_model(frame)
+            detections = []
+
+            if result and len(result) > 0:
+                boxes = getattr(result[0], "boxes", None)
+                if boxes is not None:
+                    xyxy_list = getattr(boxes, "xyxy", None)
+                    cls_list = getattr(boxes, "cls", None)
+                    conf_list = getattr(boxes, "conf", None)
+
+                    if xyxy_list is not None:
+                        xyxy_values = xyxy_list.cpu().numpy().tolist() if hasattr(xyxy_list, "cpu") else xyxy_list.numpy().tolist()
+                    else:
+                        xyxy_values = []
+
+                    cls_values = cls_list.cpu().numpy().astype(int).tolist() if hasattr(cls_list, "cpu") else cls_list.numpy().astype(int).tolist() if cls_list is not None else []
+                    conf_values = conf_list.cpu().numpy().tolist() if hasattr(conf_list, "cpu") else conf_list.numpy().tolist() if conf_list is not None else []
+
+                    for idx, box in enumerate(xyxy_values):
+                        detections.append({
+                            "xyxy": box,
+                            "class_id": int(cls_values[idx]) if idx < len(cls_values) else None,
+                            "confidence": float(conf_values[idx]) if idx < len(conf_values) else None,
+                        })
+
+            return {"success": True, "detections": detections}
+        except Exception as ex:
+            self.logger.exception(f"User frame inference failed: {ex}")
+            return {"success": False, "error": str(ex)}
 
     def update_preview_frame(self, frame, meta: dict | None = None) -> None:
         if frame is None:

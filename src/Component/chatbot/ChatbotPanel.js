@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './ChatbotPanel.scss';
 
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
+
 function ChatbotPanel() {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
@@ -24,7 +26,7 @@ function ChatbotPanel() {
 
   const checkBackendHealth = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/health');
+      const response = await fetch(`${API_BASE}/api/health`);
       const data = await response.json();
       setIsBackendOnline(Boolean(data.success));
     } catch (error) {
@@ -100,7 +102,7 @@ function ChatbotPanel() {
     }
 
     try {
-      const response = await fetch('http://localhost:5000/api/chat', {
+      const response = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmedMessage, session_id: sessionIdRef.current }),
@@ -132,7 +134,7 @@ function ChatbotPanel() {
   const clearChat = async () => {
     setMessages([]);
     try {
-      await fetch('http://localhost:5000/api/clear', {
+      await fetch(`${API_BASE}/api/clear`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sessionIdRef.current }),
