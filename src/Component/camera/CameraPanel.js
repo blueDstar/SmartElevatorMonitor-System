@@ -383,17 +383,17 @@ function CameraPanel() {
   };
 
   const handleStartCamera = async () => {
-    await runAction('Mở camera', async () => postJson(`${API_BASE}/api/camera/start`), { afterStart: true });
     if (!userCameraActive) {
-      startUserCamera();
+      await startUserCamera();
     }
+    await runAction('Mở camera', async () => postJson(`${API_BASE}/api/camera/start`), { afterStart: true });
   };
 
   const handleStopCamera = async () => {
-    await runAction('Stop camera', async () => postJson(`${API_BASE}/api/camera/stop`), { afterStop: true });
     if (userCameraActive) {
       stopUserCamera();
     }
+    await runAction('Stop camera', async () => postJson(`${API_BASE}/api/camera/stop`), { afterStop: true });
   };
 
   const handlePauseResume = async () => {
@@ -522,55 +522,56 @@ function CameraPanel() {
   };
 
   const renderUserCameraSection = () => (
-    <div className="camera-preview-card__user-section">
-      <div className="camera-preview-card__user-header">
+    <div className="camera-preview-card camera-preview-card--user">
+      <div className="camera-preview-card__header">
         <div>
-          <strong>Webcam người dùng</strong>
-          <div className="camera-preview-card__user-status">
-            {userCameraActive ? 'Đang mở webcam người dùng' : 'Chưa mở webcam người dùng'}
-          </div>
-        </div>
-        <div className="camera-preview-card__user-status-row">
+          <h4>Webcam người dùng</h4>
           <span>
-            {userCameraActive ? 'Webcam người dùng đang hoạt động' : 'Webcam người dùng chưa bật'}
+            {userCameraActive ? 'Đang mở webcam người dùng' : 'Chưa mở webcam người dùng'}
           </span>
-          <span>{userCameraUpdatedAt ? `Last inference: ${new Date(userCameraUpdatedAt).toLocaleTimeString()}` : ''}</span>
         </div>
       </div>
 
-      <div className="camera-preview-card__user-body">
+      <div className="camera-preview-card__body camera-preview-card__body--user">
         <video
           ref={userVideoRef}
           autoPlay
           muted
           playsInline
-          className="camera-preview-card__user-video"
+          className="camera-user-video"
         />
         <canvas ref={userCanvasRef} style={{ display: 'none' }} />
-      </div>
 
-      <div className="camera-preview-card__user-meta">
-        {userCameraError && <div className="camera-user-error">Lỗi camera: {userCameraError}</div>}
-      </div>
-
-      <div className="camera-preview-card__user-detections">
-        <div className="camera-preview-card__user-detections-header">
-          <strong>Kết quả nhận diện</strong>
-          <span>{userCameraDetections.length} đối tượng</span>
-        </div>
-        {userCameraDetections.length === 0 ? (
-          <div className="camera-preview-card__user-detections-empty">Không phát hiện đối tượng nào.</div>
-        ) : (
-          <div className="camera-preview-card__user-detections-list">
-            {userCameraDetections.map((item, index) => (
-              <div className="camera-preview-card__user-detection-item" key={`${item.class_id}_${index}`}>
-                <span>#{index + 1}</span>
-                <span>Class: {item.class_id ?? 'unknown'}</span>
-                <span>Conf: {(item.confidence || 0).toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
+        {userCameraError && (
+          <div className="camera-user-error">Lỗi camera: {userCameraError}</div>
         )}
+
+        <div className="camera-user-status">
+          <span>{userCameraActive ? 'Webcam đang hoạt động' : 'Webcam chưa được bật'}</span>
+          {userCameraUpdatedAt && (
+            <span>Last inference: {new Date(userCameraUpdatedAt).toLocaleTimeString()}</span>
+          )}
+        </div>
+
+        <div className="camera-user-detections">
+          <div className="camera-user-detections__header">
+            <strong>Kết quả nhận diện</strong>
+            <span>{userCameraDetections.length} đối tượng</span>
+          </div>
+          {userCameraDetections.length === 0 ? (
+            <div className="camera-user-detections__empty">Không phát hiện đối tượng nào.</div>
+          ) : (
+            <div className="camera-preview-card__user-detections-list">
+              {userCameraDetections.map((item, index) => (
+                <div className="camera-user-detection-item" key={`${item.class_id}_${index}`}>
+                  <span>#{index + 1}</span>
+                  <span>Class: {item.class_id ?? 'unknown'}</span>
+                  <span>Conf: {(item.confidence || 0).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -660,9 +661,10 @@ function CameraPanel() {
 
           <div className="camera-preview-card__body">
             {renderPreviewContent()}
-            {renderUserCameraSection()}
           </div>
         </div>
+
+        {renderUserCameraSection()}
 
         <div className="camera-control-card">
           <div className="camera-control-card__title">Điều khiển nhanh</div>
