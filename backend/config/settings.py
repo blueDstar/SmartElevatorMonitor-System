@@ -42,6 +42,11 @@ class Settings:
     chatbot_enabled: bool = _to_bool(os.getenv("CHATBOT_ENABLED", "true"), True)
     vision_enabled: bool = _to_bool(os.getenv("VISION_ENABLED", "true"), True)
 
+    # Chatbot API settings
+    chat_api_provider: str = os.getenv("CHAT_API_PROVIDER", "openai").lower()
+    chat_api_key: str = os.getenv("CHAT_API_KEY", "")
+    chat_api_model: str = os.getenv("CHAT_API_MODEL", "gpt-3.5-turbo")
+
     chat_model_path: str = os.getenv(
         "CHAT_MODEL_PATH",
         str(BASE_DIR / "model" / "Elevator_Assistant.Q4_K_M.gguf"),

@@ -16,7 +16,13 @@ def chat():
         if not user_message:
             return jsonify({"success": False, "error": "message rỗng"}), 400
 
-        return jsonify(chat_service.chat(user_message=user_message, session_id=session_id))
+        # Use API if configured, otherwise use local model
+        if chat_service.api_key and chat_service.api_provider in ["openai", "huggingface"]:
+            result = chat_service.use_api_chat(user_message)
+        else:
+            result = chat_service.chat(user_message=user_message, session_id=session_id)
+
+        return jsonify(result)
     except Exception as ex:
         return jsonify({"success": False, "error": str(ex)}), 500
 

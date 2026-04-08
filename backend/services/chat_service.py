@@ -5,6 +5,7 @@ import os
 import re
 from datetime import date, datetime
 
+import requests
 from bson import ObjectId
 from bson.decimal128 import Decimal128
 from llama_cpp import Llama
@@ -23,6 +24,10 @@ class ChatService:
         self._db = None
         self._collection_map = {}
         self._conversations: dict[str, list[dict]] = {}
+        # API settings
+        self.api_provider = settings.chat_api_provider
+        self.api_key = settings.chat_api_key
+        self.api_model = settings.chat_api_model
         self.system_prompt = """Bạn là trợ lý AI cho hệ thống SmartElevator.
 
 Bạn có 2 chế độ làm việc:
@@ -420,7 +425,77 @@ Quy tắc trả lời:
             "database_name": settings.database_name,
             "collection_map": self._collection_map,
             "collections": collections,
+            "api_provider": self.api_provider,
+            "api_key_configured": bool(self.api_key),
+            "api_model": self.api_model,
         }
+
+    def use_api_chat(self, user_message: str) -> dict:
+        if not self.api_key:
+            return {"success": False, "error": "CHAT_API_KEY chưa cấu hình"}
+
+        if self.api_provider == "huggingface":
+            return self._call_huggingface(user_message)
+        elif self.api_provider == "openai":
+            return self._call_openai(user_message)
+        else:
+            return {"success": False, "error": f"CHAT_API_PROVIDER '{self.api_provider}' không hỗ trợ"}
+
+    def _call_huggingface(self, user_message: str) -> dict:
+        try:
+            url = f"https://api-inference.huggingface.co/models/{self.api_model}"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "inputs": user_message,
+                "options": {"wait_for_model": True},
+            }
+
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            if response.status_code != 200:
+                return {"success": False, "error": f"Hugging Face API error: {response.status_code} {response.text}"}
+
+            data = response.json()
+            if isinstance(data, list) and data:
+                text = data[0].get("generated_text") or data[0].get("text")
+                return {"success": True, "message": text or ""}
+            else:
+                return {"success": False, "error": "Không nhận được phản hồi hợp lệ từ Hugging Face"}
+        except Exception as ex:
+            return {"success": False, "error": f"Lỗi gọi Hugging Face API: {str(ex)}"}
+
+    def _call_openai(self, user_message: str) -> dict:
+        try:
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": self.api_model,
+                "messages": [
+                    {"role": "system", "content": "Bạn là trợ lý AI cho hệ thống SmartElevator. Trả lời bằng tiếng Việt tự nhiên, ngắn gọn, rõ ràng."},
+                    {"role": "user", "content": user_message},
+                ],
+                "temperature": 0.7,
+                "max_tokens": 500,
+            }
+
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            if response.status_code != 200:
+                return {"success": False, "error": f"OpenAI API error: {response.status_code} {response.text}"}
+
+            data = response.json()
+            choice = data.get("choices", [])[0] if data.get("choices") else None
+            if choice:
+                message = choice.get("message", {}).get("content", "")
+                return {"success": True, "message": message}
+            else:
+                return {"success": False, "error": "Không nhận được phản hồi hợp lệ từ OpenAI"}
+        except Exception as ex:
+            return {"success": False, "error": f"Lỗi gọi OpenAI API: {str(ex)}"}
 
     def chat(self, user_message: str, session_id: str = "default") -> dict:
         emit_chat_status("received", {"session_id": session_id})
