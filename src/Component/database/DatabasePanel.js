@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import './DatabasePanel.scss';
 import {
   ResponsiveContainer,
@@ -61,18 +61,19 @@ function DatabasePanel() {
     return `${type} - ${person} - ${time}`;
   }, [stats]);
 
-  useEffect(() => {
-    loadAllData();
-  }, []);
-
-  const loadAllData = async () => {
+  const loadAllData = useCallback(async () => {
     setError('');
     await Promise.allSettled([
       fetchStats(),
       fetchPersonnels(),
       fetchEvents(filters),
     ]);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]);
 
   const fetchStats = async () => {
     setLoadingStats(true);
