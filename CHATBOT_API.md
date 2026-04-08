@@ -29,12 +29,15 @@ File này hướng dẫn cách dùng API miễn phí/miễn phí thử nghiệm 
 2. Tạo tài khoản miễn phí.
 3. Vào `Settings` > `Access Tokens`.
 4. Tạo token mới và copy giá trị.
+YOUR_HUGGINGFACE_TOKEN_HERE
 
 ### 3.2 OpenAI
 1. Truy cập: https://platform.openai.com/
 2. Đăng ký / đăng nhập.
 3. Vào `API Keys` và tạo key.
 4. Lưu lại key trong biến môi trường.
+
+YOUR_OPENAI_API_KEY_HERE
 
 ## 4. Cấu hình backend SmartElevator
 

@@ -23,3 +23,8 @@ dist/
 *.pt
 *.pth
 *.onnx
+
+# data files
+*.csv
+nhan_su.csv
+storage/*.csv
