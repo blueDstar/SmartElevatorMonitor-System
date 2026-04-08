@@ -384,10 +384,16 @@ function CameraPanel() {
 
   const handleStartCamera = async () => {
     await runAction('Mở camera', async () => postJson(`${API_BASE}/api/camera/start`), { afterStart: true });
+    if (!userCameraActive) {
+      startUserCamera();
+    }
   };
 
   const handleStopCamera = async () => {
     await runAction('Stop camera', async () => postJson(`${API_BASE}/api/camera/stop`), { afterStop: true });
+    if (userCameraActive) {
+      stopUserCamera();
+    }
   };
 
   const handlePauseResume = async () => {
@@ -524,16 +530,11 @@ function CameraPanel() {
             {userCameraActive ? 'Đang mở webcam người dùng' : 'Chưa mở webcam người dùng'}
           </div>
         </div>
-        <div className="camera-preview-card__user-buttons">
-          <button type="button" onClick={startUserCamera} disabled={userCameraActive || Boolean(busyAction)}>
-            Mở webcam
-          </button>
-          <button type="button" onClick={stopUserCamera} disabled={!userCameraActive}>
-            Dừng webcam
-          </button>
-          <button type="button" onClick={sendUserCameraFrame} disabled={!userCameraActive}>
-            Gửi frame nhận diện
-          </button>
+        <div className="camera-preview-card__user-status-row">
+          <span>
+            {userCameraActive ? 'Webcam người dùng đang hoạt động' : 'Webcam người dùng chưa bật'}
+          </span>
+          <span>{userCameraUpdatedAt ? `Last inference: ${new Date(userCameraUpdatedAt).toLocaleTimeString()}` : ''}</span>
         </div>
       </div>
 
@@ -550,14 +551,6 @@ function CameraPanel() {
 
       <div className="camera-preview-card__user-meta">
         {userCameraError && <div className="camera-user-error">Lỗi camera: {userCameraError}</div>}
-        <div className="camera-user-info">
-          <span>
-            {userCameraActive ? 'Webcam đang hoạt động' : 'Webcam chưa được bật'}
-          </span>
-          {userCameraUpdatedAt && (
-            <span>Last inference: {new Date(userCameraUpdatedAt).toLocaleTimeString()}</span>
-          )}
-        </div>
       </div>
 
       <div className="camera-preview-card__user-detections">

@@ -124,7 +124,7 @@
 
 .camera-panel__grid {
   display: grid;
-  grid-template-columns: 1.45fr 0.95fr;
+  grid-template-columns: 1fr;
   gap: 18px;
   align-items: start;
 }
@@ -209,9 +209,17 @@
 }
 
 .camera-preview-card__user-buttons {
+  display: none;
+}
+
+.camera-preview-card__user-status-row {
   display: flex;
+  justify-content: space-between;
+  gap: 12px;
   flex-wrap: wrap;
-  gap: 10px;
+  color: rgba(147, 178, 202, 1);
+  font-size: 13px;
+  margin-top: 12px;
 }
 
 .camera-preview-card__user-body {
@@ -329,8 +337,8 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  position: sticky;
-  top: 12px;
+  position: relative;
+  top: 0;
 }
 
 .camera-control-card__title {
