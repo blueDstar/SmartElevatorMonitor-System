@@ -95,7 +95,12 @@ gunicorn==21.2.0
 ### 5. **Cập nhật Render Start Command**
 Trong Render Dashboard → Service Settings → Start Command:
 ```
-gunicorn --worker-class eventlet -w 1 wsgi:application
+cd backend && gunicorn --worker-class eventlet -w 1 wsgi:application
+```
+
+**Hoặc nếu không work:**
+```
+gunicorn --worker-class eventlet -w 1 backend.wsgi:application
 ```
 
 ## Các File Đã Cập Nhật
