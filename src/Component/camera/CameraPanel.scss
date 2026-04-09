@@ -184,7 +184,8 @@
 
 .camera-preview-card__body {
   position: relative;
-  min-height: 760px;
+  min-height: 320px;
+  max-height: 360px;
   overflow: hidden;
   background:
     linear-gradient(135deg, rgba(1, 9, 20, 0.95), rgba(8, 26, 48, 0.92)),
@@ -194,7 +195,7 @@
 .camera-preview-card__image {
   width: 100%;
   height: 100%;
-  min-height: 760px;
+  max-height: 360px;
   object-fit: contain;
   display: block;
   background: rgba(0, 0, 0, 0.45);
@@ -203,7 +204,7 @@
 .camera-preview-card__video {
   width: 100%;
   height: 100%;
-  min-height: 760px;
+  max-height: 360px;
   object-fit: contain;
   display: block;
   background: rgba(0, 0, 0, 0.45);
