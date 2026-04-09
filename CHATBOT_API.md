@@ -98,7 +98,7 @@ class ChatService:
         return {"success": False, "error": "CHAT_API_PROVIDER không hỗ trợ"}
 
     def _call_huggingface(self, user_message: str) -> dict:
-        url = f"https://api-inference.huggingface.co/models/{self.api_model}"
+        url = f"https://router.huggingface.co/models/{self.api_model}"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

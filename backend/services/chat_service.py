@@ -443,7 +443,7 @@ Quy tắc trả lời:
 
     def _call_huggingface(self, user_message: str) -> dict:
         try:
-            url = f"https://api-inference.huggingface.co/models/{self.api_model}"
+            url = f"https://router.huggingface.co/models/{self.api_model}"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
