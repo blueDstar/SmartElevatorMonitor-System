@@ -20,7 +20,38 @@ app.config["SECRET_KEY"] = settings.secret_key
 
 CORS(
     app,
-    resources={r"/api/*": {"origins": "*"}},
+    resources={
+        r"/api/*": {
+            "origins": [
+                "http://localhost:3000",
+                "https://smartelevatormonitor-system.onrender.com",
+                "https://smartelevator.vercel.app",
+                "https://smartelevator-git-main-blue-d-star.vercel.app",
+                settings.cors_origin,
+            ] if settings.cors_origin != "http://localhost:3000" else [
+                "http://localhost:3000",
+                "https://smartelevatormonitor-system.onrender.com",
+                "https://smartelevator.vercel.app",
+                "https://smartelevator-git-main-blue-d-star.vercel.app",
+            ],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+        },
+        r"/socket.io/*": {
+            "origins": [
+                "http://localhost:3000",
+                "https://smartelevatormonitor-system.onrender.com",
+                "https://smartelevator.vercel.app",
+                "https://smartelevator-git-main-blue-d-star.vercel.app",
+                settings.cors_origin,
+            ] if settings.cors_origin != "http://localhost:3000" else [
+                "http://localhost:3000",
+                "https://smartelevatormonitor-system.onrender.com",
+                "https://smartelevator.vercel.app",
+                "https://smartelevator-git-main-blue-d-star.vercel.app",
+            ],
+        }
+    },
     supports_credentials=True,
 )
 
