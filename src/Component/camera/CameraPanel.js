@@ -30,11 +30,6 @@ function CameraPanel() {
   const [previewAvailable, setPreviewAvailable] = useState(false);
   const [streamNonce, setStreamNonce] = useState(Date.now());
 
-  const [userCameraActive, setUserCameraActive] = useState(false);
-  const [userCameraError, setUserCameraError] = useState('');
-  const [userCameraDetections, setUserCameraDetections] = useState([]);
-  const [userCameraUpdatedAt, setUserCameraUpdatedAt] = useState(null);
-
   const [logDrawerOpen, setLogDrawerOpen] = useState(false);
   const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
 
@@ -50,10 +45,9 @@ function CameraPanel() {
 
   const socketRef = useRef(null);
   const statusIntervalRef = useRef(null);
-  const userVideoRef = useRef(null);
-  const userCanvasRef = useRef(null);
-  const userMediaStreamRef = useRef(null);
-  const userCaptureIntervalRef = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
 
   const streamUrl = useMemo(
     () => `${API_BASE}/api/camera/stream?ts=${streamNonce}`,
@@ -212,6 +206,9 @@ function CameraPanel() {
     return () => {
       clearPolling();
       if (socketRef.current) socketRef.current.disconnect();
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
     };
   }, [initModule, clearPolling]);
 
@@ -229,6 +226,86 @@ function CameraPanel() {
     }
   }, [cameraStatus.running, startPolling, clearPolling]);
 
+  const startUserCamera = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        setPreviewAvailable(true);
+        setCameraStatus(prev => ({ ...prev, running: true, mode: 'running', note: 'User camera active' }));
+        pushLog('camera', 'INFO', 'User camera started');
+      }
+    } catch (error) {
+      pushLog('camera', 'ERROR', `Cannot access user camera: ${error.message}`);
+      showToast('error', 'Không thể truy cập camera người dùng');
+    }
+  }, [pushLog, showToast]);
+
+  const stopUserCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setPreviewAvailable(false);
+    setCameraStatus(prev => ({ ...prev, running: false, mode: 'stopped', note: 'User camera stopped' }));
+    pushLog('camera', 'INFO', 'User camera stopped');
+  }, [pushLog]);
+
+  const captureAndInfer = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(async (blob) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result;
+        try {
+          const res = await fetch(`${API_BASE}/api/camera/user-frame`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_base64: base64 }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            setCameraStatus(prev => ({
+              ...prev,
+              people_count: data.detections ? data.detections.length : 0,
+              last_event: data.detections && data.detections.length > 0 ? 'DETECTED' : null,
+            }));
+            pushLog('camera', 'INFO', `Detected ${data.detections ? data.detections.length : 0} objects`);
+          } else {
+            pushLog('camera', 'ERROR', data.error || 'Inference failed');
+          }
+        } catch (error) {
+          pushLog('camera', 'ERROR', `Inference error: ${error.message}`);
+        }
+      };
+      reader.readAsDataURL(blob);
+    }, 'image/jpeg');
+  }, [pushLog]);
+
+  useEffect(() => {
+    if (previewAvailable) {
+      const interval = setInterval(captureAndInfer, 2000); // Infer every 2 seconds
+      return () => clearInterval(interval);
+    }
+  }, [previewAvailable, captureAndInfer]);
+
   const postJson = async (url, body = {}) => {
     const res = await fetch(url, {
       method: 'POST',
@@ -237,92 +314,6 @@ function CameraPanel() {
     });
     return res.json();
   };
-
-  const sendUserCameraFrame = useCallback(async () => {
-    if (!userCameraActive || !userVideoRef.current || !userCanvasRef.current) {
-      return;
-    }
-
-    try {
-      const video = userVideoRef.current;
-      const canvas = userCanvasRef.current;
-      const width = video.videoWidth;
-      const height = video.videoHeight;
-      if (!width || !height) {
-        return;
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, width, height);
-      const imageBase64 = canvas.toDataURL('image/jpeg', 0.7);
-
-      const response = await fetch(`${API_BASE}/api/camera/user-frame`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: imageBase64 }),
-      });
-      const payload = await response.json();
-
-      if (payload.success) {
-        setUserCameraDetections(payload.detections || []);
-        setUserCameraError('');
-        setUserCameraUpdatedAt(Date.now());
-      } else {
-        setUserCameraError(payload.error || 'Inference thất bại');
-      }
-    } catch (err) {
-      setUserCameraError(err.message || 'Lỗi gửi frame');
-    }
-  }, [userCameraActive]);
-
-  const startUserCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      userMediaStreamRef.current = stream;
-      if (userVideoRef.current) {
-        userVideoRef.current.srcObject = stream;
-        await userVideoRef.current.play();
-      }
-      setUserCameraActive(true);
-      setUserCameraError('');
-      setUserCameraDetections([]);
-      setUserCameraUpdatedAt(Date.now());
-
-      if (userCaptureIntervalRef.current) {
-        clearInterval(userCaptureIntervalRef.current);
-      }
-      userCaptureIntervalRef.current = window.setInterval(sendUserCameraFrame, 2500);
-      sendUserCameraFrame();
-    } catch (error) {
-      setUserCameraError(error.message || 'Không thể mở webcam người dùng');
-      setUserCameraActive(false);
-    }
-  };
-
-  const stopUserCamera = () => {
-    if (userCaptureIntervalRef.current) {
-      clearInterval(userCaptureIntervalRef.current);
-      userCaptureIntervalRef.current = null;
-    }
-    const stream = userMediaStreamRef.current;
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      userMediaStreamRef.current = null;
-    }
-    if (userVideoRef.current) {
-      userVideoRef.current.srcObject = null;
-    }
-    setUserCameraActive(false);
-    setUserCameraError('');
-  };
-
-  useEffect(() => {
-    return () => {
-      stopUserCamera();
-    };
-  }, []);
 
   const runAction = async (label, runner, options = {}) => {
     if (busyAction) return;
@@ -383,17 +374,11 @@ function CameraPanel() {
   };
 
   const handleStartCamera = async () => {
-    if (!userCameraActive) {
-      await startUserCamera();
-    }
-    await runAction('Mở camera', async () => postJson(`${API_BASE}/api/camera/start`), { afterStart: true });
+    await startUserCamera();
   };
 
   const handleStopCamera = async () => {
-    if (userCameraActive) {
-      stopUserCamera();
-    }
-    await runAction('Stop camera', async () => postJson(`${API_BASE}/api/camera/stop`), { afterStop: true });
+    stopUserCamera();
   };
 
   const handlePauseResume = async () => {
@@ -462,7 +447,7 @@ function CameraPanel() {
 
     if (lower === 'register') {
       await handleCommand('register', 'Đăng ký');
-      pushTerminal('Backend cần register flow dạng API/form để thay cho input() terminal.');
+      pushTerminal('Backend cần register flow dạng API/form để thay cho input() terminal. Hiện tại chỉ gửi command.');
       return;
     }
 
@@ -498,15 +483,19 @@ function CameraPanel() {
   };
 
   const renderPreviewContent = () => {
-    if (cameraStatus.running) {
+    if (cameraStatus.running && previewAvailable) {
       return (
-        <img
-          src={streamUrl}
-          alt="Camera stream"
-          className="camera-preview-card__image"
-          onLoad={onPreviewLoad}
-          onError={onPreviewError}
-        />
+        <>
+          <video
+            ref={videoRef}
+            className="camera-preview-card__video"
+            onLoadedData={onPreviewLoad}
+            onError={onPreviewError}
+            playsInline
+            muted
+          />
+          <canvas ref={canvasRef} style={{ display: 'none' }} />
+        </>
       );
     }
 
@@ -515,66 +504,11 @@ function CameraPanel() {
         <img src="/logo/Camera1.png" alt="Camera" />
         <h5>Camera chưa chạy</h5>
         <p>
-          Nhấn "Mở camera" để chạy backend vision và hiển thị hình trong khung này.
+          Nhấn "Mở camera" để truy cập camera của bạn và hiển thị hình trong khung này.
         </p>
       </div>
     );
   };
-
-  const renderUserCameraSection = () => (
-    <div className="camera-preview-card camera-preview-card--user">
-      <div className="camera-preview-card__header">
-        <div>
-          <h4>Webcam người dùng</h4>
-          <span>
-            {userCameraActive ? 'Đang mở webcam người dùng' : 'Chưa mở webcam người dùng'}
-          </span>
-        </div>
-      </div>
-
-      <div className="camera-preview-card__body camera-preview-card__body--user">
-        <video
-          ref={userVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="camera-user-video"
-        />
-        <canvas ref={userCanvasRef} style={{ display: 'none' }} />
-
-        {userCameraError && (
-          <div className="camera-user-error">Lỗi camera: {userCameraError}</div>
-        )}
-
-        <div className="camera-user-status">
-          <span>{userCameraActive ? 'Webcam đang hoạt động' : 'Webcam chưa được bật'}</span>
-          {userCameraUpdatedAt && (
-            <span>Last inference: {new Date(userCameraUpdatedAt).toLocaleTimeString()}</span>
-          )}
-        </div>
-
-        <div className="camera-user-detections">
-          <div className="camera-user-detections__header">
-            <strong>Kết quả nhận diện</strong>
-            <span>{userCameraDetections.length} đối tượng</span>
-          </div>
-          {userCameraDetections.length === 0 ? (
-            <div className="camera-user-detections__empty">Không phát hiện đối tượng nào.</div>
-          ) : (
-            <div className="camera-preview-card__user-detections-list">
-              {userCameraDetections.map((item, index) => (
-                <div className="camera-user-detection-item" key={`${item.class_id}_${index}`}>
-                  <span>#{index + 1}</span>
-                  <span>Class: {item.class_id ?? 'unknown'}</span>
-                  <span>Conf: {(item.confidence || 0).toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="camera-panel">
@@ -582,7 +516,7 @@ function CameraPanel() {
         <div className="camera-panel__hero-text">
           <div className="camera-panel__badge">CAMERA AI</div>
           <h3>Giám sát camera AI</h3>
-          <p>Hiển thị camera stream trên web, gửi command thật đến backend vision và nhận trạng thái realtime.</p>
+          <p>Hiển thị camera người dùng, gửi frame để xử lý AI và nhận trạng thái realtime.</p>
         </div>
 
         <div className="camera-panel__hero-actions">
@@ -635,16 +569,16 @@ function CameraPanel() {
         <div className="camera-chip event">Last event: {cameraStatus.last_event || 'None'}</div>
       </div>
 
-      <div className="camera-panel__grid">
+      <div className="camera-panel__single-card">
         <div className="camera-preview-card">
           <div className="camera-preview-card__header">
             <div>
-              <h4>AI Camera</h4>
+              <h4>AI Camera Preview</h4>
               <span>
                 {cameraStatus.running
                   ? previewAvailable
-                    ? 'Camera stream đang hiển thị trên web'
-                    : 'Đang kết nối stream từ backend'
+                    ? 'Camera người dùng đang hiển thị và gửi frame để xử lý AI'
+                    : 'Đang kết nối camera người dùng'
                   : 'Camera chưa chạy'}
               </span>
             </div>
@@ -663,8 +597,6 @@ function CameraPanel() {
             {renderPreviewContent()}
           </div>
         </div>
-
-        {renderUserCameraSection()}
 
         <div className="camera-control-card">
           <div className="camera-control-card__title">Điều khiển nhanh</div>
