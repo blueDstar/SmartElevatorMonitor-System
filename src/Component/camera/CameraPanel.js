@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import './CameraPanel.scss';
 
@@ -28,7 +28,6 @@ function CameraPanel() {
   const [toast, setToast] = useState(null);
 
   const [previewAvailable, setPreviewAvailable] = useState(false);
-  const [streamNonce, setStreamNonce] = useState(Date.now());
 
   const [logDrawerOpen, setLogDrawerOpen] = useState(false);
   const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
@@ -48,11 +47,6 @@ function CameraPanel() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
-
-  const streamUrl = useMemo(
-    () => `${API_BASE}/api/camera/stream?ts=${streamNonce}`,
-    [streamNonce]
-  );
 
   const clearPolling = useCallback(() => {
     if (statusIntervalRef.current) {
@@ -331,7 +325,6 @@ function CameraPanel() {
         if (options.afterStop) {
           clearPolling();
           setPreviewAvailable(false);
-          setStreamNonce(Date.now());
           setCameraStatus((prev) => ({
             ...prev,
             running: false,
@@ -349,7 +342,6 @@ function CameraPanel() {
             note: 'Đang khởi động camera...',
           }));
           setPreviewAvailable(false);
-          setStreamNonce(Date.now());
           startPolling();
         }
 
@@ -411,7 +403,6 @@ function CameraPanel() {
 
   const handlePreviewRefresh = async () => {
     setPreviewAvailable(false);
-    setStreamNonce(Date.now());
     await fetchCameraStatus();
     showToast('info', 'Đã refresh stream');
   };
