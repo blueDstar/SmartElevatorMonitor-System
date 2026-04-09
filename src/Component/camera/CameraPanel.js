@@ -28,6 +28,7 @@ function CameraPanel() {
   const [toast, setToast] = useState(null);
 
   const [previewAvailable, setPreviewAvailable] = useState(false);
+  const [userCameraActive, setUserCameraActive] = useState(false);
 
   const [logDrawerOpen, setLogDrawerOpen] = useState(false);
   const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
@@ -202,7 +203,9 @@ function CameraPanel() {
       if (socketRef.current) socketRef.current.disconnect();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
       }
+      setUserCameraActive(false);
     };
   }, [initModule, clearPolling]);
 
@@ -230,11 +233,13 @@ function CameraPanel() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
+        setUserCameraActive(true);
         setPreviewAvailable(true);
         setCameraStatus(prev => ({ ...prev, running: true, mode: 'running', note: 'User camera active' }));
         pushLog('camera', 'INFO', 'User camera started');
       }
     } catch (error) {
+      setUserCameraActive(false);
       pushLog('camera', 'ERROR', `Cannot access user camera: ${error.message}`);
       showToast('error', 'Không thể truy cập camera người dùng');
     }
@@ -248,6 +253,7 @@ function CameraPanel() {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    setUserCameraActive(false);
     setPreviewAvailable(false);
     setCameraStatus(prev => ({ ...prev, running: false, mode: 'stopped', note: 'User camera stopped' }));
     pushLog('camera', 'INFO', 'User camera stopped');
@@ -474,7 +480,7 @@ function CameraPanel() {
   };
 
   const renderPreviewContent = () => {
-    if (cameraStatus.running && previewAvailable) {
+    if (userCameraActive && previewAvailable) {
       return (
         <>
           <video
@@ -484,6 +490,7 @@ function CameraPanel() {
             onError={onPreviewError}
             playsInline
             muted
+            autoPlay
           />
           <canvas ref={canvasRef} style={{ display: 'none' }} />
         </>
@@ -566,7 +573,7 @@ function CameraPanel() {
             <div>
               <h4>AI Camera Preview</h4>
               <span>
-                {cameraStatus.running
+                {userCameraActive
                   ? previewAvailable
                     ? 'Camera người dùng đang hiển thị và gửi frame để xử lý AI'
                     : 'Đang kết nối camera người dùng'
