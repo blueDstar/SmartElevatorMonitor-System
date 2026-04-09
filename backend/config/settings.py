@@ -45,7 +45,7 @@ class Settings:
     # Chatbot API settings
     chat_api_provider: str = os.getenv("CHAT_API_PROVIDER", "openai").lower()
     chat_api_key: str = os.getenv("CHAT_API_KEY", "")
-    chat_api_model: str = os.getenv("CHAT_API_MODEL", "gpt-3.5-turbo")
+    chat_api_model: str = os.getenv("CHAT_API_MODEL", "gpt-5.4-mini")
 
     chat_model_path: str = os.getenv(
         "CHAT_MODEL_PATH",
