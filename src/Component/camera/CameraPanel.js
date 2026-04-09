@@ -29,6 +29,14 @@ function CameraPanel() {
 
   const [previewAvailable, setPreviewAvailable] = useState(false);
   const [userCameraActive, setUserCameraActive] = useState(false);
+  const [snapshotImage, setSnapshotImage] = useState(null);
+  const [controlModal, setControlModal] = useState({
+    open: false,
+    type: null,
+    title: '',
+    submitLabel: '',
+    payload: {},
+  });
 
   const [logDrawerOpen, setLogDrawerOpen] = useState(false);
   const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
@@ -74,6 +82,32 @@ function CameraPanel() {
 
   const showToast = useCallback((type, message) => {
     setToast({ type, message });
+  }, []);
+
+  const openControlModal = useCallback((type) => {
+    const modalConfig = {
+      register: {
+        title: 'Đăng ký nhân viên',
+        submitLabel: 'Xác nhận đăng ký',
+      },
+      edit: {
+        title: 'Sửa thông tin nhân viên',
+        submitLabel: 'Xác nhận sửa',
+      },
+      delete: {
+        title: 'Xóa nhân viên',
+        submitLabel: 'Xác nhận xóa',
+      },
+    };
+
+    setControlModal({
+      open: true,
+      type,
+      title: modalConfig[type]?.title || 'Thao tác camera',
+      submitLabel: modalConfig[type]?.submitLabel || 'Xác nhận',
+      payload: {},
+    });
+    setTerminalDrawerOpen(false);
   }, []);
 
   const fetchHealth = useCallback(async () => {
@@ -232,7 +266,10 @@ function CameraPanel() {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current.play().catch(() => {});
+        };
+        videoRef.current.play().catch(() => {});
         setUserCameraActive(true);
         setPreviewAvailable(true);
         setCameraStatus(prev => ({ ...prev, running: true, mode: 'running', note: 'User camera active' }));
@@ -240,6 +277,7 @@ function CameraPanel() {
       }
     } catch (error) {
       setUserCameraActive(false);
+      setPreviewAvailable(false);
       pushLog('camera', 'ERROR', `Cannot access user camera: ${error.message}`);
       showToast('error', 'Không thể truy cập camera người dùng');
     }
@@ -300,11 +338,11 @@ function CameraPanel() {
   }, [pushLog]);
 
   useEffect(() => {
-    if (previewAvailable) {
+    if (previewAvailable && !cameraStatus.paused) {
       const interval = setInterval(captureAndInfer, 2000); // Infer every 2 seconds
       return () => clearInterval(interval);
     }
-  }, [previewAvailable, captureAndInfer]);
+  }, [previewAvailable, captureAndInfer, cameraStatus.paused]);
 
   const postJson = async (url, body = {}) => {
     const res = await fetch(url, {
@@ -380,14 +418,53 @@ function CameraPanel() {
   };
 
   const handlePauseResume = async () => {
-    const endpoint = cameraStatus.paused ? 'resume' : 'pause';
-    await runAction(cameraStatus.paused ? 'Resume camera' : 'Pause camera', async () =>
-      postJson(`${API_BASE}/api/camera/${endpoint}`)
-    );
+    if (!userCameraActive || !videoRef.current) {
+      const endpoint = cameraStatus.paused ? 'resume' : 'pause';
+      await runAction(cameraStatus.paused ? 'Resume camera' : 'Pause camera', async () =>
+        postJson(`${API_BASE}/api/camera/${endpoint}`)
+      );
+      return;
+    }
+
+    if (cameraStatus.paused) {
+      await videoRef.current.play().catch(() => {});
+      setCameraStatus(prev => ({ ...prev, paused: false, note: 'Camera resumed' }));
+      if (previewAvailable) startPolling();
+      pushLog('camera', 'INFO', 'User camera resumed');
+      showToast('success', 'Camera đã tiếp tục');
+    } else {
+      videoRef.current.pause();
+      clearPolling();
+      setCameraStatus(prev => ({ ...prev, paused: true, note: 'Camera paused' }));
+      pushLog('camera', 'INFO', 'User camera paused');
+      showToast('success', 'Camera đã tạm dừng');
+    }
   };
 
   const handleSnapshot = async () => {
-    await runAction('Snapshot', async () => postJson(`${API_BASE}/api/camera/snapshot`));
+    if (!userCameraActive || !videoRef.current) {
+      showToast('error', 'Camera chưa sẵn sàng để chụp');
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/png');
+    setSnapshotImage(dataUrl);
+
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `snapshot_${Date.now()}.png`;
+    link.click();
+
+    pushLog('camera', 'INFO', 'Snapshot captured from webcam');
+    showToast('success', 'Snapshot đã được chụp');
+
+    await postJson(`${API_BASE}/api/camera/snapshot`).catch(() => {});
   };
 
   const handleCommand = async (command, label, payload = {}) => {
@@ -437,26 +514,26 @@ function CameraPanel() {
 
     if (lower === 'start') return handleStartCamera();
     if (lower === 'stop') return handleStopCamera();
-    if (lower === 'pause') return runAction('Pause camera', async () => postJson(`${API_BASE}/api/camera/pause`));
-    if (lower === 'resume') return runAction('Resume camera', async () => postJson(`${API_BASE}/api/camera/resume`));
+    if (lower === 'pause') return handlePauseResume();
+    if (lower === 'resume') return handlePauseResume();
     if (lower === 'snapshot') return handleSnapshot();
     if (lower === 'reload') return handleCommand('reload', 'Reload');
 
     if (lower === 'register') {
-      await handleCommand('register', 'Đăng ký');
-      pushTerminal('Backend cần register flow dạng API/form để thay cho input() terminal. Hiện tại chỉ gửi command.');
+      openControlModal('register');
+      pushTerminal('Mở form đăng ký nhân viên.');
       return;
     }
 
     if (lower === 'edit') {
-      await handleCommand('edit', 'Sửa');
-      pushTerminal('Backend cần edit flow dạng API/form.');
+      openControlModal('edit');
+      pushTerminal('Mở form sửa nhân viên.');
       return;
     }
 
     if (lower === 'delete') {
-      await handleCommand('delete', 'Xóa');
-      pushTerminal('Backend cần delete flow dạng API/form.');
+      openControlModal('delete');
+      pushTerminal('Mở form xóa nhân viên.');
       return;
     }
 
@@ -529,7 +606,7 @@ function CameraPanel() {
           <button
             type="button"
             onClick={handlePauseResume}
-            disabled={Boolean(busyAction) || !cameraStatus.running}
+            disabled={Boolean(busyAction) || !userCameraActive}
           >
             {busyAction === 'Pause camera' || busyAction === 'Resume camera'
               ? 'Đang xử lý...'
@@ -541,7 +618,7 @@ function CameraPanel() {
           <button
             type="button"
             onClick={handleSnapshot}
-            disabled={Boolean(busyAction) || !cameraStatus.running}
+            disabled={Boolean(busyAction) || !userCameraActive}
           >
             {busyAction === 'Snapshot' ? 'Đang chụp...' : 'Snapshot'}
           </button>
@@ -552,8 +629,8 @@ function CameraPanel() {
         <div className={`camera-chip ${backendOnline ? 'ok' : 'warn'}`}>
           Backend: {backendOnline ? 'Online' : 'Offline'}
         </div>
-        <div className={`camera-chip ${cameraStatus.running ? 'ok' : 'idle'}`}>
-          Camera: {cameraStatus.running ? (cameraStatus.paused ? 'Paused' : 'Running') : 'Stopped'}
+        <div className={`camera-chip ${userCameraActive ? 'ok' : 'idle'}`}>
+          Local Preview: {userCameraActive ? (cameraStatus.paused ? 'Paused' : 'Live') : 'Stopped'}
         </div>
         <div className={`camera-chip ${cameraStatus.paused ? 'warn' : 'ok'}`}>
           Pause: {cameraStatus.paused ? 'Yes' : 'No'}
@@ -593,6 +670,12 @@ function CameraPanel() {
 
           <div className="camera-preview-card__body">
             {renderPreviewContent()}
+            {snapshotImage && (
+              <div className="camera-snapshot-preview">
+                <div className="camera-snapshot-preview__title">Snapshot</div>
+                <img src={snapshotImage} alt="Snapshot preview" />
+              </div>
+            )}
           </div>
         </div>
 
@@ -604,11 +687,7 @@ function CameraPanel() {
 
             <button
               type="button"
-              onClick={() => {
-                setTerminalDrawerOpen(true);
-                handleCommand('register', 'Đăng ký');
-                pushTerminal('Bắt đầu flow đăng ký. Backend cần API form thật để hoàn tất flow này trên web.');
-              }}
+              onClick={() => openControlModal('register')}
               disabled={Boolean(busyAction)}
             >
               Đăng ký
@@ -616,11 +695,7 @@ function CameraPanel() {
 
             <button
               type="button"
-              onClick={() => {
-                setTerminalDrawerOpen(true);
-                handleCommand('edit', 'Sửa');
-                pushTerminal('Bắt đầu flow sửa. Backend cần API edit thật thay cho input()/cv2 key flow.');
-              }}
+              onClick={() => openControlModal('edit')}
               disabled={Boolean(busyAction)}
             >
               Sửa
@@ -628,11 +703,7 @@ function CameraPanel() {
 
             <button
               type="button"
-              onClick={() => {
-                setTerminalDrawerOpen(true);
-                handleCommand('delete', 'Xóa');
-                pushTerminal('Bắt đầu flow xóa. Backend cần API delete thật thay cho input()/cv2 key flow.');
-              }}
+              onClick={() => openControlModal('delete')}
               disabled={Boolean(busyAction)}
             >
               Xóa
@@ -686,6 +757,115 @@ function CameraPanel() {
           Terminal
         </button>
       </div>
+
+      {controlModal.open && (
+        <div className="camera-action-modal-overlay">
+          <div className="camera-action-modal">
+            <div className="camera-action-modal__header">
+              <h4>{controlModal.title}</h4>
+              <button type="button" onClick={() => setControlModal({ open: false, type: null, title: '', submitLabel: '', payload: {} })}>×</button>
+            </div>
+
+            <div className="camera-action-modal__body">
+              {controlModal.type === 'register' && (
+                <>
+                  <label>
+                    Mã nhân viên
+                    <input
+                      type="text"
+                      value={controlModal.payload.employee_id || ''}
+                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, employee_id: e.target.value } }))}
+                      placeholder="VD: NV001"
+                    />
+                  </label>
+                  <label>
+                    Họ tên
+                    <input
+                      type="text"
+                      value={controlModal.payload.name || ''}
+                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, name: e.target.value } }))}
+                      placeholder="Họ và tên"
+                    />
+                  </label>
+                  <label>
+                    Phòng ban
+                    <input
+                      type="text"
+                      value={controlModal.payload.department || ''}
+                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, department: e.target.value } }))}
+                      placeholder="Phòng ban"
+                    />
+                  </label>
+                  <label>
+                    Chức vụ
+                    <input
+                      type="text"
+                      value={controlModal.payload.position || ''}
+                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, position: e.target.value } }))}
+                      placeholder="Chức vụ"
+                    />
+                  </label>
+                </>
+              )}
+
+              {controlModal.type === 'edit' && (
+                <>
+                  <label>
+                    Mã nhân viên
+                    <input
+                      type="text"
+                      value={controlModal.payload.employee_id || ''}
+                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, employee_id: e.target.value } }))}
+                      placeholder="Mã nhân viên cần sửa"
+                    />
+                  </label>
+                  <label>
+                    Thông tin mới
+                    <input
+                      type="text"
+                      value={controlModal.payload.update || ''}
+                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, update: e.target.value } }))}
+                      placeholder="Tên hoặc bộ phận mới"
+                    />
+                  </label>
+                </>
+              )}
+
+              {controlModal.type === 'delete' && (
+                <>
+                  <p>Nhập mã nhân viên để xác nhận xóa:</p>
+                  <label>
+                    Mã nhân viên
+                    <input
+                      type="text"
+                      value={controlModal.payload.employee_id || ''}
+                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, employee_id: e.target.value } }))}
+                      placeholder="Mã nhân viên"
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+
+            <div className="camera-action-modal__footer">
+              <button type="button" onClick={() => setControlModal({ open: false, type: null, title: '', submitLabel: '', payload: {} })}>
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (controlModal.type) {
+                    await handleCommand(controlModal.type, controlModal.submitLabel, controlModal.payload);
+                  }
+                  setControlModal({ open: false, type: null, title: '', submitLabel: '', payload: {} });
+                }}
+              >
+                {controlModal.submitLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={`camera-drawer camera-drawer--log ${logDrawerOpen ? 'open' : ''}`}>
         <div className="camera-drawer__header">

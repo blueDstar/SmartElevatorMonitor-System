@@ -124,7 +124,7 @@
 
 .camera-panel__single-card {
   display: grid;
-  grid-template-columns: 1.45fr 0.95fr;
+  grid-template-columns: 1.2fr 0.8fr;
   gap: 18px;
   align-items: start;
 }
@@ -146,22 +146,131 @@
   min-height: 0;
 }
 
-.camera-preview-card--user {
-  .camera-preview-card__body {
-    min-height: 520px;
-    padding: 18px;
-  }
+.camera-preview-card__body {
+  position: relative;
+  min-height: 320px;
+  max-height: 360px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(135deg, rgba(1, 9, 20, 0.95), rgba(8, 26, 48, 0.92)),
+    radial-gradient(circle at center, rgba(0, 162, 255, 0.12), rgba(0, 162, 255, 0));
 }
 
-.camera-user-video {
+.camera-preview-card__video {
   width: 100%;
-  height: 320px;
-  border-radius: 18px;
+  height: 100%;
   object-fit: cover;
-  background: #000;
+  display: block;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.45);
 }
 
-.camera-preview-card__header {
+.camera-snapshot-preview {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  width: 160px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(4, 16, 31, 0.92);
+  border: 1px solid rgba(81, 175, 255, 0.2);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+.camera-snapshot-preview__title {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: rgba(207, 232, 255, 0.95);
+  background: rgba(8, 18, 35, 0.96);
+}
+
+.camera-snapshot-preview img {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+  max-height: 180px;
+}
+
+.camera-action-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.camera-action-modal {
+  width: min(520px, 100%);
+  background: rgba(8, 18, 36, 0.98);
+  border: 1px solid rgba(79, 169, 255, 0.25);
+  border-radius: 24px;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.camera-action-modal__header,
+.camera-action-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.camera-action-modal__header h4 {
+  margin: 0;
+  font-size: 18px;
+  color: rgba(235, 244, 255, 1);
+}
+
+.camera-action-modal__header button {
+  border: none;
+  background: transparent;
+  color: rgba(223, 238, 255, 0.8);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.camera-action-modal__body {
+  padding: 0 20px 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.camera-action-modal__body label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: rgba(191, 213, 241, 0.9);
+  font-size: 13px;
+}
+
+.camera-action-modal__body input {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 14px;
+  border: 1px solid rgba(86, 163, 255, 0.18);
+  background: rgba(11, 25, 43, 0.9);
+  color: rgba(241, 249, 255, 0.95);
+  padding: 0 12px;
+}
+
+.camera-action-modal__footer button {
+  min-width: 120px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(82, 160, 255, 0.16);
+  background: rgba(11, 29, 52, 0.85);
+  color: rgba(217, 241, 255, 1);
+  cursor: pointer;
+  font-weight: 700;
+}
   padding: 16px 18px 12px;
   border-bottom: 1px solid rgba(80, 145, 255, 0.1);
   display: flex;
