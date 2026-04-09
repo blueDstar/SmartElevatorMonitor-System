@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask
 from flask_cors import CORS
 
@@ -54,5 +57,4 @@ if __name__ == "__main__":
         host=settings.flask_host,
         port=settings.flask_port,
         debug=settings.flask_debug,
-        allow_unsafe_werkzeug=True,
     )

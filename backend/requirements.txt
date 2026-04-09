@@ -13,3 +13,4 @@ eventlet==0.36.1
 requests==2.31.0
 onnxruntime==1.17.0
 onnx==1.15.0
+gunicorn==21.2.0
