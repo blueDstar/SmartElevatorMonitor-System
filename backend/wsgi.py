@@ -2,10 +2,13 @@ import os
 import eventlet
 eventlet.monkey_patch()
 
-from app import app, socketio
+from app import app
 
 # For gunicorn with eventlet workers
-application = socketio.WSGIApp(app)
+application = app
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    from services.socket_service import init_socketio
+
+    init_socketio(app)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
