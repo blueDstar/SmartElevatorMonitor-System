@@ -81,10 +81,10 @@ import os
 import eventlet
 eventlet.monkey_patch()
 
-from app import app, socketio
+from app import app
 
 # For gunicorn with eventlet workers
-application = socketio.WSGIApp(app)
+application = app
 ```
 
 ### 4. **Thêm gunicorn vào requirements.txt**
