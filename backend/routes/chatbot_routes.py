@@ -1,8 +1,16 @@
 from flask import Blueprint, jsonify, request
 
 from services import chat_service
+from services.auth_guard import enforce_jwt
 
 chatbot_bp = Blueprint("chatbot_bp", __name__)
+
+
+@chatbot_bp.before_request
+def _chatbot_require_jwt():
+    err = enforce_jwt()
+    if err:
+        return err
 
 
 @chatbot_bp.route("/api/chat", methods=["POST"])

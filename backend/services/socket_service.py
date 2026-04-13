@@ -5,11 +5,11 @@ from flask_socketio import SocketIO
 _socketio: SocketIO | None = None
 
 
-def init_socketio(app) -> SocketIO:
+def init_socketio(app, *, cors_allowed_origins: list[str] | str) -> SocketIO:
     global _socketio
     _socketio = SocketIO(
         app,
-        cors_allowed_origins="*",
+        cors_allowed_origins=cors_allowed_origins,
         async_mode="eventlet",
         logger=False,
         engineio_logger=False,

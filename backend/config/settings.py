@@ -16,24 +16,28 @@ def _to_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+_YOLO_FALLBACK = os.getenv("YOLO_DEVICE") or os.getenv("VISION_DEVICE", "0")
+
+
 @dataclass
 class Settings:
     base_dir: Path = BASE_DIR
 
-    vision_device: str = os.getenv("VISION_DEVICE", "0")
-    pose_device: str = os.getenv("POSE_DEVICE", os.getenv("VISION_DEVICE", "0"))
+    yolo_device: str = os.getenv("YOLO_DEVICE", _YOLO_FALLBACK)
+    pose_device: str = os.getenv("POSE_DEVICE", _YOLO_FALLBACK)
+    camera_source: str = os.getenv("CAMERA_SOURCE", "0")
     face_ctx_id: int = int(os.getenv("FACE_CTX_ID", "0"))
 
     flask_host: str = os.getenv("FLASK_HOST", "0.0.0.0")
     flask_port: int = int(os.getenv("FLASK_PORT", "5000"))
-    flask_debug: bool = _to_bool(os.getenv("FLASK_DEBUG", "true"), True)
+    flask_debug: bool = _to_bool(os.getenv("FLASK_DEBUG", "false"), False)
     secret_key: str = os.getenv("SECRET_KEY", "smart-elevator-dev-secret")
     cors_origin: str = os.getenv("UI_ORIGIN", "http://localhost:3000")
 
-    mongo_uri: str = os.getenv(
-        "MONGO_URI",
-        "mongodb+srv://SmartElevator:ElevatorMonitor@elevatormonitor.t5ptcsh.mongodb.net/?appName=ElevatorMonitor",
-    )
+    jwt_access_exp_seconds: int = int(os.getenv("JWT_ACCESS_EXP_SECONDS", str(7 * 24 * 3600)))
+    allow_public_register: bool = _to_bool(os.getenv("ALLOW_PUBLIC_REGISTER", "false"), False)
+
+    mongo_uri: str = (os.getenv("MONGO_URI") or "").strip()
     database_name: str = os.getenv("DATABASE_NAME", "Elevator_Management")
     personnels_collection: str = os.getenv("PERSONNELS_COLLECTION", "personnels")
     events_collection: str = os.getenv("EVENTS_COLLECTION", "events")
@@ -74,6 +78,18 @@ class Settings:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.embeddings_dir.mkdir(parents=True, exist_ok=True)
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+
+    def cors_origins(self) -> list[str]:
+        fixed = [
+            "http://localhost:3000",
+            "https://smartelevatormonitor-system.onrender.com",
+            "https://smartelevator.vercel.app",
+            "https://smartelevator-git-main-blue-d-star.vercel.app",
+        ]
+        u = (self.cors_origin or "").strip().rstrip("/")
+        if u and u not in fixed:
+            return [*fixed, u]
+        return fixed
 
 
 settings = Settings()

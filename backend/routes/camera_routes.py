@@ -3,9 +3,19 @@ import base64
 import cv2
 import numpy as np
 from flask import Blueprint, Response, jsonify, request, stream_with_context
+
 from services import camera_service
+from services.auth_guard import enforce_jwt
 
 camera_bp = Blueprint("camera_bp", __name__)
+
+
+@camera_bp.before_request
+def _camera_require_jwt():
+    allow_q = request.path in ("/api/camera/stream", "/api/camera/preview")
+    err = enforce_jwt(allow_query_token=allow_q)
+    if err:
+        return err
 
 
 @camera_bp.route("/api/camera/preview", methods=["GET"])

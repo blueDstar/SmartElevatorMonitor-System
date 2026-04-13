@@ -1,11 +1,19 @@
 from flask import Blueprint, jsonify, request
 
 from services import mongo_service
+from services.auth_guard import enforce_jwt
 from services.chat_service import ChatService
 
 mongo_bp = Blueprint("mongo_bp", __name__)
 
 _serializer = ChatService()
+
+
+@mongo_bp.before_request
+def _mongo_require_jwt():
+    err = enforce_jwt()
+    if err:
+        return err
 
 
 @mongo_bp.route("/api/mongo/health", methods=["GET"])

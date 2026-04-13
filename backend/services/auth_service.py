@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import settings
+from services.jwt_tokens import create_access_token
 from services.log_service import get_logger
 
 
@@ -21,6 +21,9 @@ class AuthService:
     def connect(self) -> None:
         if self.collection is not None:
             return
+
+        if not settings.mongo_uri:
+            raise ValueError("MONGO_URI is not set. Configure environment variables.")
 
         self.client = MongoClient(settings.mongo_uri, server_api=ServerApi("1"))
         self.client.admin.command("ping")
@@ -71,10 +74,12 @@ class AuthService:
         saved = self.collection.find_one({"_id": result.inserted_id})
 
         self.logger.info(f"Register success: username={username}")
+        pub = self._public_user(saved)
         return {
             "success": True,
             "message": "Đăng ký thành công.",
-            "user": self._public_user(saved),
+            "user": pub,
+            "access_token": create_access_token(pub["username"], pub.get("role", "user")),
         }
 
     def login(self, username: str, password: str) -> dict:
@@ -98,11 +103,20 @@ class AuthService:
             return {"success": False, "message": "Sai mật khẩu."}
 
         self.logger.info(f"Login success: username={username}")
+        pub = self._public_user(user)
         return {
             "success": True,
             "message": "Đăng nhập thành công.",
-            "user": self._public_user(user),
+            "user": pub,
+            "access_token": create_access_token(pub["username"], pub.get("role", "user")),
         }
+
+    def get_public_user(self, username: str) -> dict | None:
+        self.connect()
+        doc = self.collection.find_one({"username": username})
+        if doc is None:
+            return None
+        return self._public_user(doc)
 
     def health(self) -> dict:
         try:

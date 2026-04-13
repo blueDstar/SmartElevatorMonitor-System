@@ -18,44 +18,24 @@ logger = setup_logging(settings.log_level)
 app = Flask(__name__)
 app.config["SECRET_KEY"] = settings.secret_key
 
+_origins = settings.cors_origins()
+
 CORS(
     app,
     resources={
         r"/api/*": {
-            "origins": [
-                "http://localhost:3000",
-                "https://smartelevatormonitor-system.onrender.com",
-                "https://smartelevator.vercel.app",
-                "https://smartelevator-git-main-blue-d-star.vercel.app",
-                settings.cors_origin,
-            ] if settings.cors_origin != "http://localhost:3000" else [
-                "http://localhost:3000",
-                "https://smartelevatormonitor-system.onrender.com",
-                "https://smartelevator.vercel.app",
-                "https://smartelevator-git-main-blue-d-star.vercel.app",
-            ],
+            "origins": _origins,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
         },
         r"/socket.io/*": {
-            "origins": [
-                "http://localhost:3000",
-                "https://smartelevatormonitor-system.onrender.com",
-                "https://smartelevator.vercel.app",
-                "https://smartelevator-git-main-blue-d-star.vercel.app",
-                settings.cors_origin,
-            ] if settings.cors_origin != "http://localhost:3000" else [
-                "http://localhost:3000",
-                "https://smartelevatormonitor-system.onrender.com",
-                "https://smartelevator.vercel.app",
-                "https://smartelevator-git-main-blue-d-star.vercel.app",
-            ],
-        }
+            "origins": _origins,
+        },
     },
     supports_credentials=True,
 )
 
-socketio = init_socketio(app)
+socketio = init_socketio(app, cors_allowed_origins=_origins)
 register_blueprints(app)
 
 # eager init nhẹ để health check sẵn
@@ -72,7 +52,12 @@ if settings.chatbot_enabled:
 
 
 @socketio.on("connect")
-def handle_socket_connect():
+def handle_socket_connect(auth):
+    from services.auth_guard import verify_socket_auth
+
+    if not verify_socket_auth(auth):
+        logger.warning("Socket connect rejected (invalid or missing token)")
+        return False
     logger.info("Socket client connected")
 
 

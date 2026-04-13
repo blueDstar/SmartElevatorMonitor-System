@@ -323,6 +323,8 @@ class CameraService:
         core_config.NGUONG_SIM = self.state.sim_threshold
         core_config.YOLO_EVERY_N = self.state.yolo_every_n
         core_config.MIRROR = self.state.mirror
+        raw_cam = (settings.camera_source or "0").strip()
+        core_config.CAM_INDEX = int(raw_cam) if raw_cam.isdigit() else raw_cam
 
     def _pop_pending_command(self):
         try:
@@ -337,7 +339,7 @@ class CameraService:
 
         try:
             self._apply_core_config()
-            core_config.YOLO_DEVICE = settings.vision_device
+            core_config.YOLO_DEVICE = settings.yolo_device
             core_config.POSE_DEVICE = settings.pose_device
             core_config.FACE_CTX_ID = settings.face_ctx_id
 

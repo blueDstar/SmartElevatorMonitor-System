@@ -72,6 +72,8 @@ Quy tắc trả lời:
 
     def init_db(self) -> None:
         if self._db is None:
+            if not settings.mongo_uri:
+                raise ValueError("MONGO_URI is not set. Configure environment variables.")
             client = MongoClient(settings.mongo_uri, server_api=ServerApi("1"))
             client.admin.command("ping")
             self._db = client[settings.database_name]

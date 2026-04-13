@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './ChatbotPanel.scss';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
+import { API_BASE, getAuthHeaders } from '../../authStorage';
 
 function ChatbotPanel() {
   const [message, setMessage] = useState('');
@@ -26,7 +26,7 @@ function ChatbotPanel() {
 
   const checkBackendHealth = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/health`);
+      const response = await fetch(`${API_BASE}/api/health`, { headers: getAuthHeaders(false) });
       const data = await response.json();
       setIsBackendOnline(Boolean(data.success));
     } catch (error) {
@@ -104,7 +104,7 @@ function ChatbotPanel() {
     try {
       const response = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ message: trimmedMessage, session_id: sessionIdRef.current }),
       });
 
@@ -136,7 +136,7 @@ function ChatbotPanel() {
     try {
       await fetch(`${API_BASE}/api/clear`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ session_id: sessionIdRef.current }),
       });
     } catch (error) {

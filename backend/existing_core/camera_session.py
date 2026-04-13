@@ -132,7 +132,7 @@ def run_camera_session(det_model, pose_model, face_app, ds_nhan_su,
                        state_getter=None,
                        frame_callback=None):
 
-    cap = cv2.VideoCapture(config.CAM_INDEX, cv2.CAP_DSHOW)
+    cap = utils_cv.open_camera_capture(config.CAM_INDEX)
     if not cap.isOpened():
         print(f"Không mở được webcam. CAM_INDEX={config.CAM_INDEX}")
         return ("EXIT", (yolo_every_n, nguong_sim, nhan_dien_moi, mirror, rotate_mode))

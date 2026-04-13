@@ -1,4 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  API_BASE,
+  clearSession,
+  getStoredToken,
+  loadStoredUser,
+  saveSession,
+} from './authStorage';
 import LoginScript from './Component/login/LoginScript';
 import Sidebar from './Component/layout/Sidebar';
 import ControlPage from './Component/pages/ControlPage';
@@ -9,10 +16,44 @@ import ElevatorPanel from './Component/elevator/ElevatorPanel';
 import AdministratorPanel from './Component/administrator/AdministratorPanel';
 
 function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => loadStoredUser());
   const [activeTab, setActiveTab] = useState('control');
 
   const isAdmin = user?.role === 'admin';
+
+  useEffect(() => {
+    const token = getStoredToken();
+    const stored = loadStoredUser();
+    if (!token) {
+      if (stored) {
+        clearSession();
+        setUser(null);
+      }
+      return;
+    }
+    let cancelled = false;
+    fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.success && data.user) {
+          saveSession(data.user, token);
+          setUser(data.user);
+        } else {
+          clearSession();
+          setUser(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          clearSession();
+          setUser(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAdmin && activeTab === 'administrator') {
@@ -69,7 +110,14 @@ function App() {
   }, [activeTab]);
 
   if (!user) {
-    return <LoginScript onLoginSuccess={setUser} />;
+    return (
+      <LoginScript
+        onLoginSuccess={({ user: nextUser, token }) => {
+          saveSession(nextUser, token);
+          setUser(nextUser);
+        }}
+      />
+    );
   }
 
   return (
@@ -120,6 +168,7 @@ function App() {
                 className="dashboard-logout-btn"
                 onClick={() => {
                   setActiveTab('control');
+                  clearSession();
                   setUser(null);
                 }}
               >

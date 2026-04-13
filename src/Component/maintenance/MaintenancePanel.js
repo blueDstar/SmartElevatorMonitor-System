@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import './MaintenancePanel.scss';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
+import { API_BASE, getAuthHeaders } from '../../authStorage';
 
 function MaintenancePanel() {
   const [systemHealth, setSystemHealth] = useState(null);
@@ -24,12 +24,13 @@ function MaintenancePanel() {
     setError('');
 
     try {
+      const auth = { headers: getAuthHeaders(false) };
       const [systemRes, cameraRes, chatbotRes, mongoRes, logsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/system/health`),
-        fetch(`${API_BASE}/api/camera/status`),
-        fetch(`${API_BASE}/api/chatbot/health`),
-        fetch(`${API_BASE}/api/mongo/health`),
-        fetch(`${API_BASE}/api/logs/recent?limit=80`),
+        fetch(`${API_BASE}/api/system/health`, auth),
+        fetch(`${API_BASE}/api/camera/status`, auth),
+        fetch(`${API_BASE}/api/chatbot/health`, auth),
+        fetch(`${API_BASE}/api/mongo/health`, auth),
+        fetch(`${API_BASE}/api/logs/recent?limit=80`, auth),
       ]);
 
       const [systemData, cameraData, chatbotData, mongoData, logsData] = await Promise.all([

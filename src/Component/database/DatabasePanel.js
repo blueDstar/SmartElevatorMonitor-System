@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import './DatabasePanel.scss';
 import {
   ResponsiveContainer,
   BarChart,
@@ -10,7 +9,8 @@ import {
   Tooltip,
 } from 'recharts';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
+import { API_BASE, getAuthHeaders } from '../../authStorage';
+import './DatabasePanel.scss';
 
 const initialFilters = {
   date: '',
@@ -78,7 +78,7 @@ function DatabasePanel() {
   const fetchStats = async () => {
     setLoadingStats(true);
     try {
-      const res = await fetch(`${API_BASE}/api/mongo/stats`);
+      const res = await fetch(`${API_BASE}/api/mongo/stats`, { headers: getAuthHeaders(false) });
       const data = await res.json();
 
       if (!data.success) {
@@ -96,7 +96,9 @@ function DatabasePanel() {
   const fetchPersonnels = async () => {
     setLoadingPersonnels(true);
     try {
-      const res = await fetch(`${API_BASE}/api/mongo/personnels?limit=100`);
+      const res = await fetch(`${API_BASE}/api/mongo/personnels?limit=100`, {
+        headers: getAuthHeaders(false),
+      });
       const data = await res.json();
 
       if (!data.success) {
@@ -124,7 +126,9 @@ function DatabasePanel() {
 
       params.append('limit', '100');
 
-      const res = await fetch(`${API_BASE}/api/mongo/events?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/api/mongo/events?${params.toString()}`, {
+        headers: getAuthHeaders(false),
+      });
       const data = await res.json();
 
       if (!data.success) {

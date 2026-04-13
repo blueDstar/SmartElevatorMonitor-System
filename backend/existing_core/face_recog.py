@@ -96,7 +96,9 @@ def capture_face_embedding_for_register(face_app, mirror=True, rotate_mode=None)
 
     Không cần bấm SPACE.
     """
-    cap = cv2.VideoCapture(config.CAM_INDEX)
+    from .utils_cv import open_camera_capture
+
+    cap = open_camera_capture(config.CAM_INDEX)
     if not cap.isOpened():
         print("[DK] Khong mo duoc webcam.")
         return None

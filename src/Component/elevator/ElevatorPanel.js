@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { API_BASE, getAuthHeaders } from '../../authStorage';
 import './ElevatorPanel.scss';
-
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
 
 const BUILDINGS = [
   { id: 'A', label: 'Tòa A', floors: 15, elevators: ['A1', 'A2', 'A3'] },
@@ -152,7 +151,7 @@ function ElevatorPanel() {
     try {
       const res = await fetch(`${API_BASE}/api/elevator/call`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           elevator_id: selectedElevatorId,
           building: selectedBuilding.id,

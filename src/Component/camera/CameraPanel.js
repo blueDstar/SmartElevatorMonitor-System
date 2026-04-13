@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { API_BASE, getAuthHeaders, getStoredToken, SOCKET_URL } from '../../authStorage';
 import './CameraPanel.scss';
-
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || API_BASE;
 
 function CameraPanel() {
   const [cameraStatus, setCameraStatus] = useState({
@@ -112,7 +110,7 @@ function CameraPanel() {
 
   const fetchHealth = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/system/health`);
+      const res = await fetch(`${API_BASE}/api/system/health`, { headers: getAuthHeaders(false) });
       const data = await res.json();
       setBackendOnline(Boolean(data.success));
     } catch {
@@ -122,7 +120,7 @@ function CameraPanel() {
 
   const fetchCameraStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/camera/status`);
+      const res = await fetch(`${API_BASE}/api/camera/status`, { headers: getAuthHeaders(false) });
       const data = await res.json();
 
       if (data.success && data.status) {
@@ -141,7 +139,9 @@ function CameraPanel() {
 
   const fetchRecentLogs = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/logs/recent?limit=40&module=camera`);
+      const res = await fetch(`${API_BASE}/api/logs/recent?limit=40&module=camera`, {
+        headers: getAuthHeaders(false),
+      });
       const data = await res.json();
 
       if (data.success && Array.isArray(data.items)) {
@@ -176,6 +176,7 @@ function CameraPanel() {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 10,
+      auth: { token: getStoredToken() || '' },
     });
 
     socket.on('connect', () => {
@@ -315,7 +316,7 @@ function CameraPanel() {
         try {
           const res = await fetch(`${API_BASE}/api/camera/user-frame`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(true),
             body: JSON.stringify({ image_base64: base64 }),
           });
           const data = await res.json();
@@ -347,7 +348,7 @@ function CameraPanel() {
   const postJson = async (url, body = {}) => {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(true),
       body: JSON.stringify(body),
     });
     return res.json();

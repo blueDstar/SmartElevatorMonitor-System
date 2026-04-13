@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import './AdministratorPanel.scss';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
+import { API_BASE, getAuthHeaders, withAccessToken } from '../../authStorage';
+import './AdministratorPanel.scss';
 
 const ADMIN_NOTE_KEY = 'smartelevator_admin_notes';
 const ADMIN_INCIDENT_KEY = 'smartelevator_admin_incident_ack';
@@ -99,7 +99,7 @@ function AdministratorPanel({ user }) {
 
   const fetchJsonWithLatency = useCallback(async (url) => {
     const startedAt = performance.now();
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: getAuthHeaders(false) });
     const endedAt = performance.now();
     const latencyMs = Math.round(endedAt - startedAt);
     const data = await response.json();
@@ -168,7 +168,11 @@ function AdministratorPanel({ user }) {
     const endpoints = [
       { key: 'system-health', label: 'System Health', url: `${API_BASE}/api/system/health` },
       { key: 'camera-status', label: 'Camera Status', url: `${API_BASE}/api/camera/status` },
-      { key: 'camera-preview', label: 'Camera Preview', url: `${API_BASE}/api/camera/preview` },
+      {
+        key: 'camera-preview',
+        label: 'Camera Preview',
+        url: withAccessToken(`${API_BASE}/api/camera/preview`),
+      },
       { key: 'mongo-health', label: 'Mongo Health', url: `${API_BASE}/api/mongo/health` },
       { key: 'mongo-stats', label: 'Mongo Stats', url: `${API_BASE}/api/mongo/stats` },
       { key: 'chatbot-health', label: 'Chatbot Health', url: `${API_BASE}/api/chatbot/health` },
@@ -180,7 +184,10 @@ function AdministratorPanel({ user }) {
     for (const endpoint of endpoints) {
       const startedAt = performance.now();
       try {
-        const response = await fetch(endpoint.url, { cache: 'no-store' });
+        const response = await fetch(endpoint.url, {
+          cache: 'no-store',
+          headers: getAuthHeaders(false),
+        });
         const endedAt = performance.now();
         const latencyMs = Math.round(endedAt - startedAt);
 

@@ -1,9 +1,19 @@
 import cv2
 import numpy as np
 import os
+import sys
 import time
 from . import config
 import existing_core
+
+
+def open_camera_capture(cam_index):
+    """OpenCV capture: CAP_DSHOW on Windows for numeric indices; path/RTSP supported as string."""
+    if isinstance(cam_index, int) and sys.platform == "win32":
+        cap = cv2.VideoCapture(cam_index, cv2.CAP_DSHOW)
+    else:
+        cap = cv2.VideoCapture(cam_index)
+    return cap
 
 
 def cat_roi_an_toan(frame, x1, y1, x2, y2, pad=10):

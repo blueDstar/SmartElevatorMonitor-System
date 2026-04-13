@@ -19,6 +19,8 @@ class MongoDashboardService:
     def connect(self) -> None:
         if self.db is not None:
             return
+        if not settings.mongo_uri:
+            raise ValueError("MONGO_URI is not set. Configure environment variables.")
         self.client = MongoClient(settings.mongo_uri, server_api=ServerApi("1"))
         self.client.admin.command("ping")
         self.db = self.client[settings.database_name]

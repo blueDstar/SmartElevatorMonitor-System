@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
+import { API_BASE, saveSession } from '../../authStorage';
 import './LoginStyle.scss';
-
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
 
 function LoginScript({ onLoginSuccess }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -53,13 +52,6 @@ function LoginScript({ onLoginSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!isRegister && form.username === "admin" && form.password === "admin123") {
-      if (typeof onLoginSuccess === "function") {
-        onLoginSuccess({ username: "admin", role: "admin" });
-      }
-      return;
-    }
-
     if (!isValid) {
       if (isRegister && form.password !== form.confirmPassword) {
         setError('Mật khẩu nhập lại không khớp.');
@@ -82,9 +74,7 @@ function LoginScript({ onLoginSuccess }) {
 
       const response = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: form.username.trim(),
           password: form.password,
@@ -99,13 +89,17 @@ function LoginScript({ onLoginSuccess }) {
       }
 
       if (isRegister) {
-        setSuccessMessage('Đăng ký thành công. Hãy đăng nhập bằng tài khoản vừa tạo.');
+        if (data.access_token && data.user && typeof onLoginSuccess === 'function') {
+          saveSession(data.user, data.access_token);
+          onLoginSuccess({ user: data.user, token: data.access_token });
+          setSuccessMessage('');
+        } else {
+          setSuccessMessage('Dang ky thanh cong. Hay dang nhap bang tai khoan vua tao.');
+        }
         setIsRegister(false);
         resetForm();
-      } else {
-        if (typeof onLoginSuccess === 'function') {
-          onLoginSuccess(data.user);
-        }
+      } else if (typeof onLoginSuccess === 'function' && data.access_token && data.user) {
+        onLoginSuccess({ user: data.user, token: data.access_token });
       }
     } catch (err) {
       setError(err.message || 'Lỗi kết nối server.');
