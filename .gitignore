@@ -29,3 +29,7 @@ dist/
 *.csv
 nhan_su.csv
 storage/*.csv
+# Markdown
+**/*.md
+!README.md
+!CONTRIBUTING.md

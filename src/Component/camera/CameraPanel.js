@@ -3,6 +3,22 @@ import { io } from 'socket.io-client';
 import { API_BASE, getAuthHeaders, getStoredToken, SOCKET_URL } from '../../authStorage';
 import './CameraPanel.scss';
 
+const ROTATE_SEQUENCE = ['none', '90deg', '180deg', '270deg'];
+
+const normalizeRotate = (value) => {
+  if (!value || value === 'none') return 'none';
+  if (value === 90 || value === '90' || value === '90deg' || value === 'right') return '90deg';
+  if (value === 180 || value === '180' || value === '180deg') return '180deg';
+  if (value === 270 || value === '270' || value === '270deg' || value === 'left') return '270deg';
+  return 'none';
+};
+
+const getNextRotate = (current) => {
+  const normalized = normalizeRotate(current);
+  const currentIndex = ROTATE_SEQUENCE.indexOf(normalized);
+  return ROTATE_SEQUENCE[(currentIndex + 1) % ROTATE_SEQUENCE.length];
+};
+
 function CameraPanel() {
   const [cameraStatus, setCameraStatus] = useState({
     running: false,
@@ -54,7 +70,9 @@ function CameraPanel() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
-  /** Webcam trình duyệt: backend worker có thể `running: false` — không được xóa preview khi poll/socket. */
+
+  // Webcam trình duyệt: backend worker có thể `running: false`
+  // không được xóa preview khi poll/socket.
   const isUserWebcamRef = useRef(false);
 
   const clearPolling = useCallback(() => {
@@ -65,15 +83,17 @@ function CameraPanel() {
   }, []);
 
   const pushLog = useCallback((module, level, message) => {
-    setLogs((prev) => [
-      {
-        id: `${Date.now()}_${Math.random()}`,
-        module,
-        level,
-        message,
-      },
-      ...prev,
-    ].slice(0, 120));
+    setLogs((prev) =>
+      [
+        {
+          id: `${Date.now()}_${Math.random()}`,
+          module,
+          level,
+          message,
+        },
+        ...prev,
+      ].slice(0, 120)
+    );
   }, []);
 
   const pushTerminal = useCallback((line) => {
@@ -112,7 +132,9 @@ function CameraPanel() {
 
   const fetchHealth = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/system/health`, { headers: getAuthHeaders(false) });
+      const res = await fetch(`${API_BASE}/api/system/health`, {
+        headers: getAuthHeaders(false),
+      });
       const data = await res.json();
       setBackendOnline(Boolean(data.success));
     } catch {
@@ -122,12 +144,15 @@ function CameraPanel() {
 
   const fetchCameraStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/camera/status`, { headers: getAuthHeaders(false) });
+      const res = await fetch(`${API_BASE}/api/camera/status`, {
+        headers: getAuthHeaders(false),
+      });
       const data = await res.json();
 
       if (data.success && data.status) {
         setCameraStatus((prev) => {
           const remote = data.status;
+
           if (isUserWebcamRef.current) {
             return {
               ...prev,
@@ -137,6 +162,7 @@ function CameraPanel() {
               note: prev.note || remote.note || 'User camera active',
             };
           }
+
           const next = { ...prev, ...remote };
           if (!next.running) {
             setPreviewAvailable(false);
@@ -204,12 +230,14 @@ function CameraPanel() {
     socket.on('camera_status', (payload) => {
       setCameraStatus((prev) => {
         const next = { ...prev, ...payload };
+
         if (next.running) {
           startPolling();
         } else if (!isUserWebcamRef.current) {
           clearPolling();
           setPreviewAvailable(false);
         }
+
         return next;
       });
     });
@@ -247,18 +275,23 @@ function CameraPanel() {
 
     return () => {
       clearPolling();
-      if (socketRef.current) socketRef.current.disconnect();
+
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
       }
+
       isUserWebcamRef.current = false;
       setUserCameraActive(false);
     };
   }, [initModule, clearPolling]);
 
   useEffect(() => {
-    if (!toast) return;
+    if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 2500);
     return () => clearTimeout(t);
   }, [toast]);
@@ -283,6 +316,7 @@ function CameraPanel() {
 
     const attach = () => {
       if (cancelled) return;
+
       const el = videoRef.current;
       if (!el) {
         rafAttempts += 1;
@@ -301,6 +335,7 @@ function CameraPanel() {
         el.play().catch(() => {});
         setPreviewAvailable(true);
       };
+
       el.addEventListener('loadedmetadata', onMeta, { once: true });
       el.play().catch(() => {});
     };
@@ -330,7 +365,10 @@ function CameraPanel() {
         });
       } catch {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
           audio: false,
         });
       }
@@ -364,9 +402,11 @@ function CameraPanel() {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+
     setUserCameraActive(false);
     setPreviewAvailable(false);
     setCameraStatus((prev) => ({
@@ -391,22 +431,31 @@ function CameraPanel() {
 
     canvas.toBlob(async (blob) => {
       const reader = new FileReader();
+
       reader.onload = async () => {
         const base64 = reader.result;
+
         try {
           const res = await fetch(`${API_BASE}/api/camera/user-frame`, {
             method: 'POST',
             headers: getAuthHeaders(true),
             body: JSON.stringify({ image_base64: base64 }),
           });
+
           const data = await res.json();
+
           if (data.success) {
-            setCameraStatus(prev => ({
+            setCameraStatus((prev) => ({
               ...prev,
               people_count: data.detections ? data.detections.length : 0,
-              last_event: data.detections && data.detections.length > 0 ? 'DETECTED' : null,
+              last_event:
+                data.detections && data.detections.length > 0 ? 'DETECTED' : null,
             }));
-            pushLog('camera', 'INFO', `Detected ${data.detections ? data.detections.length : 0} objects`);
+            pushLog(
+              'camera',
+              'INFO',
+              `Detected ${data.detections ? data.detections.length : 0} objects`
+            );
           } else {
             pushLog('camera', 'ERROR', data.error || 'Inference failed');
           }
@@ -414,15 +463,17 @@ function CameraPanel() {
           pushLog('camera', 'ERROR', `Inference error: ${error.message}`);
         }
       };
+
       reader.readAsDataURL(blob);
     }, 'image/jpeg');
   }, [pushLog]);
 
   useEffect(() => {
     if (previewAvailable && !cameraStatus.paused) {
-      const interval = setInterval(captureAndInfer, 2000); // Infer every 2 seconds
+      const interval = setInterval(captureAndInfer, 2000);
       return () => clearInterval(interval);
     }
+    return undefined;
   }, [previewAvailable, captureAndInfer, cameraStatus.paused]);
 
   const postJson = async (url, body = {}) => {
@@ -501,22 +552,31 @@ function CameraPanel() {
   const handlePauseResume = async () => {
     if (!userCameraActive || !videoRef.current) {
       const endpoint = cameraStatus.paused ? 'resume' : 'pause';
-      await runAction(cameraStatus.paused ? 'Resume camera' : 'Pause camera', async () =>
-        postJson(`${API_BASE}/api/camera/${endpoint}`)
+      await runAction(
+        cameraStatus.paused ? 'Resume camera' : 'Pause camera',
+        async () => postJson(`${API_BASE}/api/camera/${endpoint}`)
       );
       return;
     }
 
     if (cameraStatus.paused) {
       await videoRef.current.play().catch(() => {});
-      setCameraStatus(prev => ({ ...prev, paused: false, note: 'Camera resumed' }));
+      setCameraStatus((prev) => ({
+        ...prev,
+        paused: false,
+        note: 'Camera resumed',
+      }));
       if (previewAvailable) startPolling();
       pushLog('camera', 'INFO', 'User camera resumed');
       showToast('success', 'Camera đã tiếp tục');
     } else {
       videoRef.current.pause();
       clearPolling();
-      setCameraStatus(prev => ({ ...prev, paused: true, note: 'Camera paused' }));
+      setCameraStatus((prev) => ({
+        ...prev,
+        paused: true,
+        note: 'Camera paused',
+      }));
       pushLog('camera', 'INFO', 'User camera paused');
       showToast('success', 'Camera đã tạm dừng');
     }
@@ -533,7 +593,9 @@ function CameraPanel() {
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext('2d');
+
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
     const dataUrl = canvas.toDataURL('image/png');
     setSnapshotImage(dataUrl);
 
@@ -558,25 +620,105 @@ function CameraPanel() {
   };
 
   const handleYolo = async (value) => {
-    await runAction(`YOLO ${value}`, async () => postJson(`${API_BASE}/api/camera/yolo/${value}`));
+    await runAction(`YOLO ${value}`, async () =>
+      postJson(`${API_BASE}/api/camera/yolo/${value}`)
+    );
   };
 
   const handleSim = async (type) => {
-    await runAction(type === 'inc' ? 'Sim +' : 'Sim -', async () => postJson(`${API_BASE}/api/camera/sim/${type}`));
+    await runAction(type === 'inc' ? 'Sim +' : 'Sim -', async () =>
+      postJson(`${API_BASE}/api/camera/sim/${type}`)
+    );
   };
 
-  const handlePreviewRefresh = async () => {
+  const handlePreviewRefresh = useCallback(async () => {
     if (!isUserWebcamRef.current) {
       setPreviewAvailable(false);
     }
+
     await fetchCameraStatus();
+
     if (isUserWebcamRef.current && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
       videoRef.current.play().catch(() => {});
       setPreviewAvailable(true);
     }
+
     showToast('info', 'Da refresh stream');
-  };
+  }, [fetchCameraStatus, showToast]);
+
+  const handleMenu = useCallback(() => {
+    setTerminalDrawerOpen(true);
+    pushTerminal('=== CAMERA MENU ===');
+    pushTerminal('register  -> Mở form đăng ký');
+    pushTerminal('edit      -> Mở form sửa');
+    pushTerminal('delete    -> Mở form xóa');
+    pushTerminal('reload    -> Refresh preview');
+    pushTerminal('mirror    -> Lật ảnh preview');
+    pushTerminal('rotate    -> Xoay preview 90 độ');
+    pushTerminal('yolo 1/2/3-> Đổi tần suất YOLO');
+    pushTerminal('sim + / - -> Tăng giảm ngưỡng similarity');
+    showToast('info', 'Đã mở menu điều khiển');
+  }, [pushTerminal, showToast]);
+
+  const handleReload = useCallback(async () => {
+    await handlePreviewRefresh();
+    pushTerminal('> reload -> OK');
+  }, [handlePreviewRefresh, pushTerminal]);
+
+  const handleMirror = useCallback(async () => {
+    const nextMirror = !cameraStatus.mirror;
+
+    setCameraStatus((prev) => ({
+      ...prev,
+      mirror: nextMirror,
+    }));
+
+    pushLog('camera', 'INFO', `Mirror ${nextMirror ? 'enabled' : 'disabled'}`);
+    pushTerminal(`> mirror -> ${nextMirror ? 'ON' : 'OFF'}`);
+    showToast(
+      'success',
+      nextMirror ? 'Đã lật ảnh preview' : 'Đã trả ảnh về bình thường'
+    );
+
+    try {
+      await postJson(`${API_BASE}/api/camera/command`, {
+        command: 'mirror',
+        payload: { mirror: nextMirror },
+      });
+    } catch {
+      // local preview vẫn hoạt động kể cả backend không phản hồi
+    }
+  }, [cameraStatus.mirror, pushLog, pushTerminal, showToast]);
+
+  const handleRotate = useCallback(async () => {
+    const nextRotate = getNextRotate(cameraStatus.rotate);
+
+    setCameraStatus((prev) => ({
+      ...prev,
+      rotate: nextRotate,
+    }));
+
+    pushLog('camera', 'INFO', `Rotate -> ${nextRotate}`);
+    pushTerminal(`> rotate -> ${nextRotate}`);
+    showToast('success', `Đã xoay preview: ${nextRotate}`);
+
+    try {
+      await postJson(`${API_BASE}/api/camera/command`, {
+        command: 'rotate',
+        payload: { rotate: nextRotate },
+      });
+    } catch {
+      // local preview vẫn đổi dù backend không phản hồi
+    }
+  }, [cameraStatus.rotate, pushLog, pushTerminal, showToast]);
+
+  const previewTransform = [
+    cameraStatus.mirror ? 'scaleX(-1)' : 'scaleX(1)',
+    normalizeRotate(cameraStatus.rotate) !== 'none'
+      ? `rotate(${normalizeRotate(cameraStatus.rotate)})`
+      : 'rotate(0deg)',
+  ].join(' ');
 
   const onPreviewLoad = () => {
     setPreviewAvailable(true);
@@ -595,17 +737,13 @@ function CameraPanel() {
 
     const lower = cmd.toLowerCase();
 
-    if (lower === 'help' || lower === 'menu') {
-      pushTerminal('Các lệnh: help, reload, register, edit, delete, mirror, rotate, snapshot, pause, resume, start, stop, yolo 1|2|3, sim +, sim -');
-      return;
-    }
-
+    if (lower === 'help' || lower === 'menu') return handleMenu();
     if (lower === 'start') return handleStartCamera();
     if (lower === 'stop') return handleStopCamera();
     if (lower === 'pause') return handlePauseResume();
     if (lower === 'resume') return handlePauseResume();
     if (lower === 'snapshot') return handleSnapshot();
-    if (lower === 'reload') return handleCommand('reload', 'Reload');
+    if (lower === 'reload') return handleReload();
 
     if (lower === 'register') {
       openControlModal('register');
@@ -625,8 +763,8 @@ function CameraPanel() {
       return;
     }
 
-    if (lower === 'mirror') return handleCommand('mirror', 'Mirror');
-    if (lower === 'rotate') return handleCommand('rotate', 'Rotate');
+    if (lower === 'mirror') return handleMirror();
+    if (lower === 'rotate') return handleRotate();
 
     const yoloMatch = lower.match(/^yolo\s+([123])$/);
     if (yoloMatch) return handleYolo(Number(yoloMatch[1]));
@@ -647,10 +785,11 @@ function CameraPanel() {
   const renderPreviewContent = () => {
     if (userCameraActive) {
       return (
-        <>
+        <div className={`camera-preview-card__stage ${previewAvailable ? 'is-live' : ''}`}>
           <video
             ref={videoRef}
             className="camera-preview-card__video"
+            style={{ transform: previewTransform }}
             onLoadedData={onPreviewLoad}
             onPlaying={() => setPreviewAvailable(true)}
             onError={onPreviewError}
@@ -661,10 +800,10 @@ function CameraPanel() {
           <canvas ref={canvasRef} style={{ display: 'none' }} />
           {!previewAvailable && (
             <div className="camera-preview-card__video-wait" aria-hidden>
-              Dang ket noi camera...
+              Đang kết nối camera...
             </div>
           )}
-        </>
+        </div>
       );
     }
 
@@ -672,9 +811,7 @@ function CameraPanel() {
       <div className="camera-preview-card__placeholder">
         <img src="/logo/Camera1.png" alt="Camera" />
         <h5>Camera chưa chạy</h5>
-        <p>
-          Nhấn "Mở camera" để truy cập camera của bạn và hiển thị hình trong khung này.
-        </p>
+        <p>Nhấn "Mở camera" để truy cập camera của bạn và hiển thị hình trong khung này.</p>
       </div>
     );
   };
@@ -732,7 +869,9 @@ function CameraPanel() {
         <div className="camera-chip">Mirror: {cameraStatus.mirror ? 'On' : 'Off'}</div>
         <div className="camera-chip">Rotate: {cameraStatus.rotate || 'none'}</div>
         <div className="camera-chip">YOLO: {cameraStatus.yolo_every_n}</div>
-        <div className="camera-chip">Sim: {Number(cameraStatus.sim_threshold || 0).toFixed(2)}</div>
+        <div className="camera-chip">
+          Sim: {Number(cameraStatus.sim_threshold || 0).toFixed(2)}
+        </div>
         <div className="camera-chip">FPS: {cameraStatus.fps || 0}</div>
         <div className="camera-chip">People: {cameraStatus.people_count || 0}</div>
         <div className="camera-chip event">Last event: {cameraStatus.last_event || 'None'}</div>
@@ -777,7 +916,9 @@ function CameraPanel() {
           <div className="camera-control-card__title">Điều khiển nhanh</div>
 
           <div className="camera-control-card__grid">
-            <button type="button" onClick={() => handleCommand('help', 'Menu')} disabled={Boolean(busyAction)}>Menu</button>
+            <button type="button" onClick={handleMenu} disabled={Boolean(busyAction)}>
+              Menu
+            </button>
 
             <button
               type="button"
@@ -803,14 +944,45 @@ function CameraPanel() {
               Xóa
             </button>
 
-            <button type="button" onClick={() => handleCommand('reload', 'Reload')} disabled={Boolean(busyAction)}>Reload</button>
-            <button type="button" onClick={() => handleCommand('mirror', 'Mirror')} disabled={Boolean(busyAction)}>Mirror</button>
-            <button type="button" onClick={() => handleCommand('rotate', 'Rotate')} disabled={Boolean(busyAction)}>Rotate</button>
-            <button type="button" onClick={() => handleYolo(1)} disabled={Boolean(busyAction)}>YOLO 1</button>
-            <button type="button" onClick={() => handleYolo(2)} disabled={Boolean(busyAction)}>YOLO 2</button>
-            <button type="button" onClick={() => handleYolo(3)} disabled={Boolean(busyAction)}>YOLO 3</button>
-            <button type="button" onClick={() => handleSim('inc')} disabled={Boolean(busyAction)}>Sim +</button>
-            <button type="button" onClick={() => handleSim('dec')} disabled={Boolean(busyAction)}>Sim -</button>
+            <button type="button" onClick={handleReload} disabled={Boolean(busyAction)}>
+              Reload
+            </button>
+
+            <button
+              type="button"
+              onClick={handleMirror}
+              disabled={Boolean(busyAction) || !userCameraActive}
+            >
+              Mirror
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRotate}
+              disabled={Boolean(busyAction) || !userCameraActive}
+            >
+              Rotate
+            </button>
+
+            <button type="button" onClick={() => handleYolo(1)} disabled={Boolean(busyAction)}>
+              YOLO 1
+            </button>
+
+            <button type="button" onClick={() => handleYolo(2)} disabled={Boolean(busyAction)}>
+              YOLO 2
+            </button>
+
+            <button type="button" onClick={() => handleYolo(3)} disabled={Boolean(busyAction)}>
+              YOLO 3
+            </button>
+
+            <button type="button" onClick={() => handleSim('inc')} disabled={Boolean(busyAction)}>
+              Sim +
+            </button>
+
+            <button type="button" onClick={() => handleSim('dec')} disabled={Boolean(busyAction)}>
+              Sim -
+            </button>
           </div>
 
           <div className="camera-control-card__events">
@@ -857,7 +1029,20 @@ function CameraPanel() {
           <div className="camera-action-modal">
             <div className="camera-action-modal__header">
               <h4>{controlModal.title}</h4>
-              <button type="button" onClick={() => setControlModal({ open: false, type: null, title: '', submitLabel: '', payload: {} })}>×</button>
+              <button
+                type="button"
+                onClick={() =>
+                  setControlModal({
+                    open: false,
+                    type: null,
+                    title: '',
+                    submitLabel: '',
+                    payload: {},
+                  })
+                }
+              >
+                ×
+              </button>
             </div>
 
             <div className="camera-action-modal__body">
@@ -868,34 +1053,57 @@ function CameraPanel() {
                     <input
                       type="text"
                       value={controlModal.payload.employee_id || ''}
-                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, employee_id: e.target.value } }))}
+                      onChange={(e) =>
+                        setControlModal((prev) => ({
+                          ...prev,
+                          payload: { ...prev.payload, employee_id: e.target.value },
+                        }))
+                      }
                       placeholder="VD: NV001"
                     />
                   </label>
+
                   <label>
                     Họ tên
                     <input
                       type="text"
                       value={controlModal.payload.name || ''}
-                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, name: e.target.value } }))}
+                      onChange={(e) =>
+                        setControlModal((prev) => ({
+                          ...prev,
+                          payload: { ...prev.payload, name: e.target.value },
+                        }))
+                      }
                       placeholder="Họ và tên"
                     />
                   </label>
+
                   <label>
                     Phòng ban
                     <input
                       type="text"
                       value={controlModal.payload.department || ''}
-                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, department: e.target.value } }))}
+                      onChange={(e) =>
+                        setControlModal((prev) => ({
+                          ...prev,
+                          payload: { ...prev.payload, department: e.target.value },
+                        }))
+                      }
                       placeholder="Phòng ban"
                     />
                   </label>
+
                   <label>
                     Chức vụ
                     <input
                       type="text"
                       value={controlModal.payload.position || ''}
-                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, position: e.target.value } }))}
+                      onChange={(e) =>
+                        setControlModal((prev) => ({
+                          ...prev,
+                          payload: { ...prev.payload, position: e.target.value },
+                        }))
+                      }
                       placeholder="Chức vụ"
                     />
                   </label>
@@ -909,16 +1117,27 @@ function CameraPanel() {
                     <input
                       type="text"
                       value={controlModal.payload.employee_id || ''}
-                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, employee_id: e.target.value } }))}
+                      onChange={(e) =>
+                        setControlModal((prev) => ({
+                          ...prev,
+                          payload: { ...prev.payload, employee_id: e.target.value },
+                        }))
+                      }
                       placeholder="Mã nhân viên cần sửa"
                     />
                   </label>
+
                   <label>
                     Thông tin mới
                     <input
                       type="text"
                       value={controlModal.payload.update || ''}
-                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, update: e.target.value } }))}
+                      onChange={(e) =>
+                        setControlModal((prev) => ({
+                          ...prev,
+                          payload: { ...prev.payload, update: e.target.value },
+                        }))
+                      }
                       placeholder="Tên hoặc bộ phận mới"
                     />
                   </label>
@@ -933,7 +1152,12 @@ function CameraPanel() {
                     <input
                       type="text"
                       value={controlModal.payload.employee_id || ''}
-                      onChange={(e) => setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, employee_id: e.target.value } }))}
+                      onChange={(e) =>
+                        setControlModal((prev) => ({
+                          ...prev,
+                          payload: { ...prev.payload, employee_id: e.target.value },
+                        }))
+                      }
                       placeholder="Mã nhân viên"
                     />
                   </label>
@@ -942,16 +1166,39 @@ function CameraPanel() {
             </div>
 
             <div className="camera-action-modal__footer">
-              <button type="button" onClick={() => setControlModal({ open: false, type: null, title: '', submitLabel: '', payload: {} })}>
+              <button
+                type="button"
+                onClick={() =>
+                  setControlModal({
+                    open: false,
+                    type: null,
+                    title: '',
+                    submitLabel: '',
+                    payload: {},
+                  })
+                }
+              >
                 Hủy
               </button>
+
               <button
                 type="button"
                 onClick={async () => {
                   if (controlModal.type) {
-                    await handleCommand(controlModal.type, controlModal.submitLabel, controlModal.payload);
+                    await handleCommand(
+                      controlModal.type,
+                      controlModal.submitLabel,
+                      controlModal.payload
+                    );
                   }
-                  setControlModal({ open: false, type: null, title: '', submitLabel: '', payload: {} });
+
+                  setControlModal({
+                    open: false,
+                    type: null,
+                    title: '',
+                    submitLabel: '',
+                    payload: {},
+                  });
                 }}
               >
                 {controlModal.submitLabel}
@@ -964,7 +1211,9 @@ function CameraPanel() {
       <div className={`camera-drawer camera-drawer--log ${logDrawerOpen ? 'open' : ''}`}>
         <div className="camera-drawer__header">
           <h5>Log realtime</h5>
-          <button type="button" onClick={() => setLogDrawerOpen(false)}>Đóng</button>
+          <button type="button" onClick={() => setLogDrawerOpen(false)}>
+            Đóng
+          </button>
         </div>
 
         <div className="camera-drawer__body">
@@ -973,7 +1222,9 @@ function CameraPanel() {
           ) : (
             logs.map((log) => (
               <div className="camera-log-item" key={log.id}>
-                <span className={`camera-log-item__level ${String(log.level).toLowerCase()}`}>[{log.level}]</span>
+                <span className={`camera-log-item__level ${String(log.level).toLowerCase()}`}>
+                  [{log.level}]
+                </span>
                 <span className="camera-log-item__module">[{log.module}]</span>
                 <span className="camera-log-item__message">{log.message}</span>
               </div>
@@ -982,10 +1233,14 @@ function CameraPanel() {
         </div>
       </div>
 
-      <div className={`camera-drawer camera-drawer--terminal ${terminalDrawerOpen ? 'open' : ''}`}>
+      <div
+        className={`camera-drawer camera-drawer--terminal ${terminalDrawerOpen ? 'open' : ''}`}
+      >
         <div className="camera-drawer__header">
           <h5>Camera Terminal</h5>
-          <button type="button" onClick={() => setTerminalDrawerOpen(false)}>Đóng</button>
+          <button type="button" onClick={() => setTerminalDrawerOpen(false)}>
+            Đóng
+          </button>
         </div>
 
         <div className="camera-terminal__output">
