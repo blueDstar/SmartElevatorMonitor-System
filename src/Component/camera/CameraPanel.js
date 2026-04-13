@@ -54,6 +54,8 @@ function CameraPanel() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+  /** Webcam trình duyệt: backend worker có thể `running: false` — không được xóa preview khi poll/socket. */
+  const isUserWebcamRef = useRef(false);
 
   const clearPolling = useCallback(() => {
     if (statusIntervalRef.current) {
@@ -125,7 +127,17 @@ function CameraPanel() {
 
       if (data.success && data.status) {
         setCameraStatus((prev) => {
-          const next = { ...prev, ...data.status };
+          const remote = data.status;
+          if (isUserWebcamRef.current) {
+            return {
+              ...prev,
+              ...remote,
+              running: true,
+              mode: 'running',
+              note: prev.note || remote.note || 'User camera active',
+            };
+          }
+          const next = { ...prev, ...remote };
           if (!next.running) {
             setPreviewAvailable(false);
           }
@@ -194,7 +206,7 @@ function CameraPanel() {
         const next = { ...prev, ...payload };
         if (next.running) {
           startPolling();
-        } else {
+        } else if (!isUserWebcamRef.current) {
           clearPolling();
           setPreviewAvailable(false);
         }
@@ -240,6 +252,7 @@ function CameraPanel() {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
       }
+      isUserWebcamRef.current = false;
       setUserCameraActive(false);
     };
   }, [initModule, clearPolling]);
@@ -251,42 +264,104 @@ function CameraPanel() {
   }, [toast]);
 
   useEffect(() => {
-    if (cameraStatus.running) {
+    if (cameraStatus.running || isUserWebcamRef.current) {
       startPolling();
     } else {
       clearPolling();
     }
   }, [cameraStatus.running, startPolling, clearPolling]);
 
+  useEffect(() => {
+    if (!userCameraActive) return undefined;
+
+    const stream = streamRef.current;
+    if (!stream) return undefined;
+
+    let cancelled = false;
+    let rafAttempts = 0;
+    const maxRaf = 30;
+
+    const attach = () => {
+      if (cancelled) return;
+      const el = videoRef.current;
+      if (!el) {
+        rafAttempts += 1;
+        if (rafAttempts < maxRaf) {
+          requestAnimationFrame(attach);
+        }
+        return;
+      }
+
+      el.srcObject = stream;
+      el.muted = true;
+      el.setAttribute('playsinline', 'true');
+      el.setAttribute('webkit-playsinline', 'true');
+
+      const onMeta = () => {
+        el.play().catch(() => {});
+        setPreviewAvailable(true);
+      };
+      el.addEventListener('loadedmetadata', onMeta, { once: true });
+      el.play().catch(() => {});
+    };
+
+    requestAnimationFrame(attach);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userCameraActive]);
+
   const startUserCamera = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play().catch(() => {});
-        };
-        videoRef.current.play().catch(() => {});
-        setUserCameraActive(true);
-        setPreviewAvailable(true);
-        setCameraStatus(prev => ({ ...prev, running: true, mode: 'running', note: 'User camera active' }));
-        pushLog('camera', 'INFO', 'User camera started');
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Trinh duyet khong ho tro getUserMedia');
       }
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      }
+
+      streamRef.current = stream;
+      isUserWebcamRef.current = true;
+
+      setUserCameraActive(true);
+      setPreviewAvailable(false);
+      setCameraStatus((prev) => ({
+        ...prev,
+        running: true,
+        mode: 'running',
+        note: 'User camera active',
+      }));
+      pushLog('camera', 'INFO', 'User camera started');
     } catch (error) {
+      isUserWebcamRef.current = false;
+      streamRef.current = null;
       setUserCameraActive(false);
       setPreviewAvailable(false);
       pushLog('camera', 'ERROR', `Cannot access user camera: ${error.message}`);
-      showToast('error', 'Không thể truy cập camera người dùng');
+      showToast('error', 'Khong the truy cap camera nguoi dung');
     }
   }, [pushLog, showToast]);
 
   const stopUserCamera = useCallback(() => {
+    isUserWebcamRef.current = false;
+
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -294,7 +369,12 @@ function CameraPanel() {
     }
     setUserCameraActive(false);
     setPreviewAvailable(false);
-    setCameraStatus(prev => ({ ...prev, running: false, mode: 'stopped', note: 'User camera stopped' }));
+    setCameraStatus((prev) => ({
+      ...prev,
+      running: false,
+      mode: 'stopped',
+      note: 'User camera stopped',
+    }));
     pushLog('camera', 'INFO', 'User camera stopped');
   }, [pushLog]);
 
@@ -486,9 +566,16 @@ function CameraPanel() {
   };
 
   const handlePreviewRefresh = async () => {
-    setPreviewAvailable(false);
+    if (!isUserWebcamRef.current) {
+      setPreviewAvailable(false);
+    }
     await fetchCameraStatus();
-    showToast('info', 'Đã refresh stream');
+    if (isUserWebcamRef.current && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+      setPreviewAvailable(true);
+    }
+    showToast('info', 'Da refresh stream');
   };
 
   const onPreviewLoad = () => {
@@ -558,19 +645,25 @@ function CameraPanel() {
   };
 
   const renderPreviewContent = () => {
-    if (userCameraActive && previewAvailable) {
+    if (userCameraActive) {
       return (
         <>
           <video
             ref={videoRef}
             className="camera-preview-card__video"
             onLoadedData={onPreviewLoad}
+            onPlaying={() => setPreviewAvailable(true)}
             onError={onPreviewError}
             playsInline
             muted
             autoPlay
           />
           <canvas ref={canvasRef} style={{ display: 'none' }} />
+          {!previewAvailable && (
+            <div className="camera-preview-card__video-wait" aria-hidden>
+              Dang ket noi camera...
+            </div>
+          )}
         </>
       );
     }
