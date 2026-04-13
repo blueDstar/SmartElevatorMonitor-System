@@ -821,14 +821,14 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
-    padding: 16px 18px 12px 28px;
+    padding: 16px 18px 12px 3636px;
     border-bottom: 1px solid rgba(80, 145, 255, 0.1);
   }
   
   .camera-preview-card__header > div {
     flex: 1;
     min-width: 0;
-    padding-left: 6px;
+    padding-left: 12px;
   }
   
   .camera-preview-card__header h4 {
@@ -856,8 +856,8 @@
 
   .camera-preview-card__body {
     position: relative;
-    min-height: 520px;
-    max-height: 620px;
+    min-height: 620px;
+    max-height: 7720px;
     padding: 14px 16px 18px;
     overflow: hidden;
     display: flex;
