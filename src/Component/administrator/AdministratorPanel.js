@@ -352,12 +352,18 @@ function AdministratorPanel({ user }) {
       {
         label: 'Chatbot',
         value:
-          chatbotHealth?.success && chatbotHealth?.db_ok && chatbotHealth?.model_exists
+          chatbotHealth?.success &&
+          chatbotHealth?.db_ok &&
+          chatbotHealth?.openrouter_api_key_configured
             ? 'READY'
             : 'DEGRADED',
-        detail: `Latency ${chatbotHealth?.latencyMs ?? '--'} ms`,
+        detail: chatbotHealth?.openrouter_api_key_configured
+          ? `OpenRouter ${chatbotHealth?.model_name || ''} • Latency ${chatbotHealth?.latencyMs ?? '--'} ms`
+          : 'OpenRouter chưa cấu hình',
         status:
-          chatbotHealth?.success && chatbotHealth?.db_ok && chatbotHealth?.model_exists
+          chatbotHealth?.success &&
+          chatbotHealth?.db_ok &&
+          chatbotHealth?.openrouter_api_key_configured
             ? 'ok'
             : 'warning',
       },
@@ -465,7 +471,9 @@ function AdministratorPanel({ user }) {
       `Vision: ${cameraStatus?.running ? 'RUNNING' : cameraStatus?.mode || 'STOPPED'}`,
       `Mongo: ${mongoHealth?.success ? 'HEALTHY' : 'DOWN'}`,
       `Chatbot: ${
-        chatbotHealth?.success && chatbotHealth?.db_ok && chatbotHealth?.model_exists
+        chatbotHealth?.success &&
+        chatbotHealth?.db_ok &&
+        chatbotHealth?.openrouter_api_key_configured
           ? 'READY'
           : 'DEGRADED'
       }`,
@@ -473,7 +481,7 @@ function AdministratorPanel({ user }) {
       `FPS: ${cameraStatus?.fps ?? 0}`,
       `People: ${cameraStatus?.people_count ?? 0}`,
       `Last refresh: ${lastRefresh || '--'}`,
-    ].join('\n');
+    ].join('\n')
 
     try {
       await navigator.clipboard.writeText(summary);

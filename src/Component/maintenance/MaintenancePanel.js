@@ -65,10 +65,15 @@ function MaintenancePanel() {
     const cameraMode = cameraStatus?.mode || 'unknown';
     const mongoOk = mongoHealth?.success;
     const chatbotDbOk = chatbotHealth?.db_ok;
-    const chatbotModelExists = chatbotHealth?.model_exists;
+    const chatbotApiReady =
+      chatbotHealth?.openrouter_api_key_configured && chatbotHealth?.model_name;
 
-    const warningLogs = logs.filter((item) => String(item.level).toUpperCase() === 'WARNING');
-    const errorLogs = logs.filter((item) => String(item.level).toUpperCase() === 'ERROR');
+    const warningLogs = logs.filter(
+      (item) => String(item.level).toUpperCase() === 'WARNING'
+    );
+    const errorLogs = logs.filter(
+      (item) => String(item.level).toUpperCase() === 'ERROR'
+    );
 
     if (!cameraRunning) {
       plan.push({
@@ -149,7 +154,9 @@ function MaintenancePanel() {
         label: 'Chatbot Server',
         value: chatbotOk ? 'Ổn định' : 'Cần kiểm tra',
         type: chatbotOk ? 'ok' : 'warning',
-        detail: chatbotHealth?.model_exists ? 'Model sẵn sàng' : 'Model chưa sẵn sàng',
+        detail: chatbotHealth?.openrouter_api_key_configured
+          ? `OpenRouter sẵn sàng${chatbotHealth?.model_name ? ` (${chatbotHealth.model_name})` : ''}`
+          : 'OpenRouter chưa cấu hình',
       },
       {
         label: 'MongoDB',
