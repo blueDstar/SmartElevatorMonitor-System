@@ -60,10 +60,6 @@ class Settings:
 
     # ===== Local model paths =====
     model_dir: Path = Path(os.getenv("MODEL_DIR", str(BASE_DIR / "model")))
-    chat_model_path: str = os.getenv(
-        "CHAT_MODEL_PATH",
-        str(BASE_DIR / "model" / "Elevator_Assistant.Q4_K_M.gguf"),
-    )
 
     yolo_det_model_path: Path = Path(
         os.getenv("YOLO_DET_MODEL_PATH", str(BASE_DIR / "model" / "yolo11n.pt"))

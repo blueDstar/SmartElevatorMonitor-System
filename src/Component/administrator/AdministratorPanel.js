@@ -392,7 +392,7 @@ function AdministratorPanel({ user }) {
     }
 
     if (chatbotHealth && !chatbotHealth.model_exists) {
-      recs.push('Kiểm tra CHAT_MODEL_PATH và quyền truy cập model chatbot.');
+      recs.push('Kiểm tra CHAT_ROUTER_API và quyền truy cập model chatbot.');
     }
 
     if (logs.some((item) => String(item.message).toLowerCase().includes('preview'))) {
