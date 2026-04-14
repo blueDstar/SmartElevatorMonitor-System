@@ -143,7 +143,7 @@ Thông tin dữ liệu hệ thống có thể liên quan:
             return int(m.group(1))
         return None
 
-    def extract_ma_nv(msg: str):
+    def extract_ma_nv(self, msg: str) -> list[str]:
         patterns = [
             r"\bmã\s*nhân\s*viên\s*[:=]?\s*([A-Za-z0-9_-]+)\b",
             r"\bmã\s*nv\s*[:=]?\s*([A-Za-z0-9_-]+)\b",
@@ -154,15 +154,17 @@ Thông tin dữ liệu hệ thống có thể liên quan:
         found = []
         seen = set()
 
-        for p in patterns:
-            matches = re.findall(p, msg, re.IGNORECASE)
-            for x in matches:
-                code = x.strip()
-                if code.lower() not in seen:
-                    seen.add(code.lower())
+        for pattern in patterns:
+            matches = re.findall(pattern, msg, re.IGNORECASE)
+            for match in matches:
+                code = match.strip()
+                key = code.lower()
+                if key not in seen:
+                    seen.add(key)
                     found.append(code)
 
         return found
+
 
     def extract_cam_id(self, msg: str):
         patterns = [
@@ -244,10 +246,12 @@ Thông tin dữ liệu hệ thống có thể liên quan:
         has_personnel_kw = any(k in msg for k in personnel_keywords)
         has_event_kw = any(k in msg for k in event_keywords)
 
+        ma_nv_list = self.extract_ma_nv(user_message)
+
         if self.extract_person_id(user_message) is not None:
             return "events" if has_event_kw else "personnels"
 
-        if self.extract_ma_nv(user_message) is not None:
+        if ma_nv_list:
             return "events" if has_event_kw else "personnels"
 
         if self.extract_cam_id(user_message) is not None:
@@ -275,12 +279,13 @@ Thông tin dữ liệu hệ thống có thể liên quan:
 
     def needs_clarification(self, user_message: str, intent: str):
         msg = self.normalize_text(user_message)
+        ma_nv_list = self.extract_ma_nv(user_message)
 
         if intent == "personnels":
             broad_words = ["nhân sự", "nhân viên", "ai trong hệ thống", "danh sách nhân sự", "có những ai"]
             if any(word in msg for word in broad_words):
                 return None
-            if self.extract_person_id(user_message) or self.extract_ma_nv(user_message) or self.extract_person_name_candidates(user_message):
+            if self.extract_person_id(user_message) or ma_nv_list or self.extract_person_name_candidates(user_message):
                 return None
             if "ngày sinh" in msg or "bộ phận" in msg or "mã nhân viên" in msg:
                 return "Bạn muốn tra theo person_id, mã nhân viên, hay họ tên cụ thể?"
@@ -289,7 +294,7 @@ Thông tin dữ liệu hệ thống có thể liên quan:
         if intent == "events":
             if (
                 self.extract_person_id(user_message) is not None
-                or self.extract_ma_nv(user_message) is not None
+                or ma_nv_list
                 or self.extract_cam_id(user_message) is not None
                 or self.extract_date(user_message) is not None
                 or self.extract_event_type(user_message) is not None
@@ -315,20 +320,20 @@ Thông tin dữ liệu hệ thống có thể liên quan:
         context = {}
 
         person_id = self.extract_person_id(user_message)
-        ma_nv = self.extract_ma_nv(user_message)
+        ma_nv_list = self.extract_ma_nv(user_message)
         name_candidates = self.extract_person_name_candidates(user_message)
         msg_l = self.normalize_text(user_message)
 
         query = None
         if person_id is not None:
             query = {"person_id": person_id}
-        elif ma_nv:
-            query = {"ma_nv": ma_nv}
+        elif ma_nv_list:
+            query = {"ma_nv": {"$in": ma_nv_list}}
         elif name_candidates:
             query = {"ho_ten": {"$regex": re.escape(name_candidates[0]), "$options": "i"}}
 
         if query:
-            docs = list(personnels_col.find(query).sort("_id", 1).limit(10))
+            docs = list(personnels_col.find(query).sort("_id", 1).limit(50))
         else:
             if any(x in msg_l for x in ["danh sách", "có những ai", "nhân sự nào", "nhân viên nào", "trong hệ thống"]):
                 docs = list(personnels_col.find({}).sort("_id", 1).limit(50))
@@ -345,10 +350,11 @@ Thông tin dữ liệu hệ thống có thể liên quan:
         context = {}
         msg_l = self.normalize_text(user_message)
         query = {}
-        resolved_person = None
+
+        resolved_personnels = []
 
         person_id = self.extract_person_id(user_message)
-        ma_nv = self.extract_ma_nv(user_message)
+        ma_nv_list = self.extract_ma_nv(user_message)
         cam_id = self.extract_cam_id(user_message)
         event_type = self.extract_event_type(user_message)
         date_value = self.extract_date(user_message)
@@ -356,17 +362,23 @@ Thông tin dữ liệu hệ thống có thể liên quan:
 
         if person_id is not None:
             query["person_id"] = person_id
-        elif ma_nv:
-            person_doc = personnels_col.find_one({"ma_nv": ma_nv})
-            if person_doc:
-                resolved_person = self.serialize_doc(person_doc)
-                query["person_id"] = person_doc.get("person_id")
+
+        elif ma_nv_list:
+            person_docs = list(personnels_col.find({"ma_nv": {"$in": ma_nv_list}}))
+            person_ids = [doc.get("person_id") for doc in person_docs if doc.get("person_id") is not None]
+
+            if person_docs:
+                resolved_personnels = [self.serialize_doc(doc) for doc in person_docs]
+
+            if person_ids:
+                query["person_id"] = {"$in": person_ids}
+
         elif name_candidates:
             person_doc = personnels_col.find_one(
                 {"ho_ten": {"$regex": re.escape(name_candidates[0]), "$options": "i"}}
             )
             if person_doc:
-                resolved_person = self.serialize_doc(person_doc)
+                resolved_personnels = [self.serialize_doc(person_doc)]
                 query["person_id"] = person_doc.get("person_id")
             else:
                 query["person_name"] = {"$regex": re.escape(name_candidates[0]), "$options": "i"}
@@ -380,8 +392,8 @@ Thông tin dữ liệu hệ thống có thể liên quan:
         if date_value is not None:
             query["date"] = date_value
 
-        if resolved_person:
-            context["resolved_personnel"] = resolved_person
+        if resolved_personnels:
+            context["resolved_personnels"] = resolved_personnels
 
         sort_spec = [("timestamp", -1), ("_id", -1)]
         limit_n = 10

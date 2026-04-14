@@ -24,13 +24,12 @@ def chat():
         if not user_message:
             return jsonify({"success": False, "error": "message rỗng"}), 400
 
-        # Use API if configured, otherwise use local model
-        if chat_service.api_key and chat_service.api_provider in ["openai", "huggingface"]:
-            result = chat_service.use_api_chat(user_message)
-        else:
-            result = chat_service.chat(user_message=user_message, session_id=session_id)
-
+        result = chat_service.chat(
+            user_message=user_message,
+            session_id=session_id,
+        )
         return jsonify(result)
+
     except Exception as ex:
         return jsonify({"success": False, "error": str(ex)}), 500
 
@@ -38,13 +37,19 @@ def chat():
 @chatbot_bp.route("/api/clear", methods=["POST"])
 @chatbot_bp.route("/api/chatbot/clear", methods=["POST"])
 def clear_history():
-    data = request.json or {}
-    session_id = (data.get("session_id") or "default").strip()
-    chat_service.clear_history(session_id)
-    return jsonify({"success": True})
+    try:
+        data = request.json or {}
+        session_id = (data.get("session_id") or "default").strip()
+        chat_service.clear_history(session_id)
+        return jsonify({"success": True})
+    except Exception as ex:
+        return jsonify({"success": False, "error": str(ex)}), 500
 
 
 @chatbot_bp.route("/api/health", methods=["GET"])
 @chatbot_bp.route("/api/chatbot/health", methods=["GET"])
 def chatbot_health():
-    return jsonify(chat_service.health())
+    try:
+        return jsonify(chat_service.health())
+    except Exception as ex:
+        return jsonify({"success": False, "error": str(ex)}), 500
