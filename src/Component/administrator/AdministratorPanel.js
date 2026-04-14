@@ -261,12 +261,12 @@ function AdministratorPanel({ user }) {
       });
     }
 
-    if (chatbotHealth && (!chatbotHealth.db_ok || !chatbotHealth.model_exists)) {
+    if (chatbotHealth && (!chatbotHealth.db_ok || !chatbotHealth?.openrouter_api_key_configured)) {
       list.push({
         id: 'chatbot-runtime-warning',
         severity: 'high',
         title: 'Chatbot runtime chưa sẵn sàng',
-        detail: !chatbotHealth.model_exists
+        detail: !chatbotHealth.openrouter_api_key_configured
           ? 'Model chatbot chưa sẵn sàng'
           : 'Chatbot chưa kết nối DB ổn định',
       });
@@ -397,7 +397,7 @@ function AdministratorPanel({ user }) {
       recs.push('Rà soát URI MongoDB, network route, và quyền collection.');
     }
 
-    if (chatbotHealth && !chatbotHealth.model_exists) {
+    if (chatbotHealth && !chatbotHealth.openrouter_api_key_configured) {
       recs.push('Kiểm tra CHAT_ROUTER_API và quyền truy cập model chatbot.');
     }
 
