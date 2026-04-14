@@ -9,11 +9,10 @@ from flask_cors import CORS
 from config import settings
 from routes import register_blueprints
 from services.socket_service import init_socketio
-from services.log_service import install_std_redirects, setup_logging
-from services import chat_service, mongo_service, camera_service
+from services.log_service import setup_logging
+from services import chat_service, mongo_service
 
 logger = setup_logging(settings.log_level)
-# install_std_redirects()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = settings.secret_key
@@ -38,7 +37,6 @@ CORS(
 socketio = init_socketio(app, cors_allowed_origins=_origins)
 register_blueprints(app)
 
-# eager init nhẹ để health check sẵn
 try:
     mongo_service.connect()
 except Exception as ex:
@@ -58,6 +56,7 @@ def handle_socket_connect(auth):
     if not verify_socket_auth(auth):
         logger.warning("Socket connect rejected (invalid or missing token)")
         return False
+
     logger.info("Socket client connected")
 
 
@@ -67,7 +66,9 @@ def handle_socket_disconnect():
 
 
 if __name__ == "__main__":
-    logger.info("SmartElevator backend is running...")
+    logger.info(
+        f"SmartElevator backend is running on {settings.flask_host}:{settings.flask_port}"
+    )
     socketio.run(
         app,
         host=settings.flask_host,

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import date, datetime
 
 import requests
 from bson import ObjectId
 from bson.decimal128 import Decimal128
-from llama_cpp import Llama
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 
@@ -20,48 +18,65 @@ from services.socket_service import emit_chat_status
 class ChatService:
     def __init__(self) -> None:
         self.logger = get_logger("chatbot")
-        self._llm = None
         self._db = None
-        self._collection_map = {}
+        self._collection_map: dict[str, str] = {}
         self._conversations: dict[str, list[dict]] = {}
-        # API settings
-        self.api_provider = settings.chat_api_provider
-        self.api_key = settings.chat_api_key
-        self.api_model = settings.chat_api_model
+
+        self.openrouter_api_key = settings.openrouter_api_key
+        self.openrouter_base_url = settings.openrouter_base_url.rstrip("/")
+        self.model_name = settings.model_name
+
         self.system_prompt = """Bạn là trợ lý AI cho hệ thống SmartElevator.
 
-Bạn có 2 chế độ làm việc:
-1. Nếu KHÔNG có CONTEXT_JSON: bạn trả lời như một trợ lý AI thông minh, tự nhiên, hữu ích bằng tiếng Việt.
-2. Nếu CÓ CONTEXT_JSON:
-   - CONTEXT_JSON là dữ liệu lấy từ MongoDB của hệ thống.
-   - Bạn phải ưu tiên dựa trên CONTEXT_JSON để trả lời phần liên quan dữ liệu hệ thống.
-   - Không được bịa dữ liệu không có trong CONTEXT_JSON.
-   - Nếu dữ liệu chưa đủ để kết luận thì nói rõ là chưa đủ dữ liệu.
+Bạn là trợ lý AI cho hệ thống SmartElevator.
 
-Schema dữ liệu hệ thống hiện tại:
-- personnels: thông tin nhân sự đã đăng ký, gồm các field như _id, person_id, ho_ten, ma_nv, bo_phan, ngay_sinh, emb_file
-- events: dữ liệu sự kiện hệ thống ghi nhận, gồm các field như _id, cam_id, date, event_type, extra, person_id, person_name, time, timestamp, weekday
+Vai trò của bạn:
+- Hỗ trợ người dùng hỏi đáp tự nhiên bằng tiếng Việt.
+- Khi có dữ liệu hệ thống nội bộ được cung cấp kèm theo, hãy dùng dữ liệu đó để trả lời chính xác.
+- Khi không có dữ liệu hệ thống liên quan, hãy trả lời như một trợ lý AI bình thường, hữu ích, rõ ràng.
 
-Quy tắc trả lời:
-- Trả lời bằng tiếng Việt tự nhiên, ngắn gọn, rõ ràng.
-- Nếu người dùng hỏi về dữ liệu hệ thống, hãy dựa vào CONTEXT_JSON.
-- Nếu CONTEXT_JSON có dữ liệu nhưng không đủ để trả lời chính xác, hãy nói rõ điều đó.
-- Nếu người dùng hỏi thông thường, hãy trả lời như trợ lý AI bình thường.
-- Nếu người dùng yêu cầu xuất JSON, bạn được phép trả JSON hợp lệ.
-- Không cần nhắc lại toàn bộ CONTEXT_JSON nếu không cần thiết.
+Nguyên tắc quan trọng:
+- Tuyệt đối không nhắc đến các tên kỹ thuật hoặc nhãn nội bộ như: CONTEXT_JSON, context, JSON đầu vào, schema, rules, system data, dữ liệu được nhét vào prompt.
+- Tuyệt đối không mô tả quá trình suy luận nội bộ.
+- Không được viết kiểu: "người dùng đang hỏi...", "theo quy tắc...", "dựa trên CONTEXT_JSON...", "tôi được cung cấp dữ liệu rằng...".
+- Chỉ trả lời trực tiếp vào điều người dùng hỏi.
+- Không bịa dữ liệu. Nếu dữ liệu chưa đủ thì nói tự nhiên, ví dụ:
+  - "Hiện tại tôi chưa thấy đủ dữ liệu để kết luận chính xác."
+  - "Tôi chưa thấy bản ghi phù hợp trong hệ thống."
+  - "Dữ liệu hiện có chưa đủ để trả lời chắc chắn câu này."
+
+Quy tắc bắt buộc về ngôn ngữ:
+- Chỉ được trả lời bằng tiếng Việt tự nhiên.
+- Tuyệt đối không được chèn từ, ký tự, hoặc cụm từ của ngôn ngữ khác.
+- Không được dùng tiếng Trung, tiếng Nga, tiếng Anh, tiếng Hàn, tiếng Nhật trong câu trả lời, trừ:
+  + tên riêng của người,
+  + mã kỹ thuật cố định như FALL, LYING, BOTTLE,
+  + mã nhân viên, person_id, cam_id nếu cần giữ nguyên.
+- Nếu gặp dữ liệu kỹ thuật hoặc nhãn nội bộ bằng tiếng Anh, hãy diễn đạt lại bằng tiếng Việt dễ hiểu nếu có thể.
+
+Cách trả lời:
+- Luôn trả lời bằng tiếng Việt tự nhiên.
+- Ưu tiên cách diễn đạt ngắn gọn, rõ ràng, dễ đọc.
+- Khi người dùng hỏi về danh sách sự kiện hoặc nhân sự, hãy trình bày đẹp, dễ đọc, có thể dùng gạch đầu dòng hoặc bảng nếu phù hợp.
+- Khi người dùng yêu cầu "dễ đọc hơn", "ngắn gọn hơn", "trình bày lại", "tóm tắt", hãy giữ nguyên ý và dữ liệu, chỉ đổi cách diễn đạt cho dễ hiểu hơn.
+- Khi người dùng hỏi thông tin hệ thống, hãy ưu tiên dữ liệu hệ thống đã được cung cấp cho lượt hỏi đó.
+- Nếu người dùng yêu cầu xuất JSON, chỉ khi đó mới trả JSON hợp lệ.
+- Nếu dữ liệu có ngày giờ, hãy trình bày theo cách con người dễ đọc.
+- Hãy viết trọn câu, đầy đủ ý, không bỏ dở giữa chừng.
+
+Khi trả lời dữ liệu hệ thống:
+- Nếu chỉ có 1 bản ghi, hãy trả lời theo văn phong mô tả tự nhiên.
+- Nếu có nhiều bản ghi, hãy ưu tiên:
+  1. một câu tóm tắt ngắn ở đầu,
+  2. sau đó là danh sách hoặc bảng dễ đọc.
+- Nếu người dùng chỉ muốn "xem", "liệt kê", "hiển thị", hãy đi thẳng vào nội dung, không cần mở đầu dài.
+- Không lặp lại những câu xã giao không cần thiết.
+- Không tự chèn các tiêu đề kỹ thuật.
+
+Thông tin dữ liệu hệ thống có thể liên quan:
+- personnels: thông tin nhân sự đã đăng ký, có thể gồm _id, person_id, ho_ten, ma_nv, bo_phan, ngay_sinh, emb_file
+- events: dữ liệu sự kiện hệ thống ghi nhận, có thể gồm _id, cam_id, date, event_type, extra, person_id, person_name, time, timestamp, weekday
 """
-
-    def init_llm(self) -> None:
-        if self._llm is None:
-            self.logger.info("Loading LLM model...")
-            self._llm = Llama(
-                model_path=settings.chat_model_path,
-                n_ctx=4096,
-                n_threads=0,
-                n_gpu_layers=0,
-                verbose=False,
-            )
-            self.logger.info("LLM ready.")
 
     def resolve_collection_name(self, actual_names, preferred_names):
         lower_map = {name.lower(): name for name in actual_names}
@@ -74,32 +89,37 @@ Quy tắc trả lời:
         if self._db is None:
             if not settings.mongo_uri:
                 raise ValueError("MONGO_URI is not set. Configure environment variables.")
+
             client = MongoClient(settings.mongo_uri, server_api=ServerApi("1"))
             client.admin.command("ping")
+
             self._db = client[settings.database_name]
             actual_names = self._db.list_collection_names()
+
             personnels_name = self.resolve_collection_name(actual_names, ["personnels", "Personnels"])
             events_name = self.resolve_collection_name(actual_names, ["events", "Events"])
+
             self._collection_map = {
                 "personnels": personnels_name or settings.personnels_collection,
                 "events": events_name or settings.events_collection,
             }
+
             self.logger.info(f"MongoDB connected. Collections={actual_names}")
 
-    def serialize_value(self, v):
-        if isinstance(v, ObjectId):
-            return str(v)
-        if isinstance(v, Decimal128):
-            return str(v)
-        if isinstance(v, datetime):
-            return v.isoformat()
-        if isinstance(v, date):
-            return v.isoformat()
-        if isinstance(v, list):
-            return [self.serialize_value(x) for x in v]
-        if isinstance(v, dict):
-            return {k: self.serialize_value(val) for k, val in v.items()}
-        return v
+    def serialize_value(self, value):
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, Decimal128):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        if isinstance(value, list):
+            return [self.serialize_value(x) for x in value]
+        if isinstance(value, dict):
+            return {k: self.serialize_value(v) for k, v in value.items()}
+        return value
 
     def serialize_doc(self, doc):
         return {k: self.serialize_value(v) for k, v in doc.items()}
@@ -111,8 +131,8 @@ Quy tắc trả lời:
             self.logger.info(line)
         self.logger.info("===== END CONTEXT_JSON =====")
 
-    def normalize_text(self, s: str) -> str:
-        return (s or "").strip().lower()
+    def normalize_text(self, text: str) -> str:
+        return (text or "").strip().lower()
 
     def extract_person_id(self, msg: str):
         m = re.search(r"\bperson[_\s-]?id\s*[:=]?\s*(\d+)\b", msg, re.IGNORECASE)
@@ -123,18 +143,26 @@ Quy tắc trả lời:
             return int(m.group(1))
         return None
 
-    def extract_ma_nv(self, msg: str):
+    def extract_ma_nv(msg: str):
         patterns = [
             r"\bmã\s*nhân\s*viên\s*[:=]?\s*([A-Za-z0-9_-]+)\b",
             r"\bmã\s*nv\s*[:=]?\s*([A-Za-z0-9_-]+)\b",
             r"\bma_nv\s*[:=]?\s*([A-Za-z0-9_-]+)\b",
             r"\bma\s*nv\s*[:=]?\s*([A-Za-z0-9_-]+)\b",
         ]
+
+        found = []
+        seen = set()
+
         for p in patterns:
-            m = re.search(p, msg, re.IGNORECASE)
-            if m:
-                return m.group(1).strip()
-        return None
+            matches = re.findall(p, msg, re.IGNORECASE)
+            for x in matches:
+                code = x.strip()
+                if code.lower() not in seen:
+                    seen.add(code.lower())
+                    found.append(code)
+
+        return found
 
     def extract_cam_id(self, msg: str):
         patterns = [
@@ -142,8 +170,8 @@ Quy tắc trả lời:
             r"\bcam[_\s-]?id\s*[:=]?\s*([0-9]+)\b",
             r"\bcam\s*([0-9]+)\b",
         ]
-        for p in patterns:
-            m = re.search(p, msg, re.IGNORECASE)
+        for pattern in patterns:
+            m = re.search(pattern, msg, re.IGNORECASE)
             if m:
                 return m.group(1).strip()
         return None
@@ -164,6 +192,7 @@ Quy tắc trả lời:
             return "FALL"
         if "bottle" in msg_l or "chai" in msg_l:
             return "BOTTLE"
+
         m = re.search(r"\bevent\s+([A-Za-z_]+)\b", msg, re.IGNORECASE)
         if m:
             return m.group(1).upper()
@@ -176,30 +205,32 @@ Quy tắc trả lời:
             r"của\s+([A-ZÀ-Ỹa-zà-ỹ][A-ZÀ-Ỹa-zà-ỹ\s]+)",
             r"người\s+tên\s+([A-ZÀ-Ỹa-zà-ỹ][A-ZÀ-Ỹa-zà-ỹ\s]+)",
         ]
-        for p in patterns:
-            m = re.search(p, msg, re.IGNORECASE)
+
+        for pattern in patterns:
+            m = re.search(pattern, msg, re.IGNORECASE)
             if m:
                 name = m.group(1).strip(" ?.,!;:")
                 if len(name.split()) >= 2:
                     candidates.append(name)
 
-        direct_name = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4})\b", msg)
-        for name in direct_name:
+        direct_names = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4})\b", msg)
+        for name in direct_names:
             cleaned = name.strip()
             if len(cleaned.split()) >= 2:
                 candidates.append(cleaned)
 
         out = []
         seen = set()
-        for c in candidates:
-            key = c.lower().strip()
+        for candidate in candidates:
+            key = candidate.lower().strip()
             if key not in seen:
                 seen.add(key)
-                out.append(c.strip())
+                out.append(candidate.strip())
         return out
 
     def detect_intent(self, user_message: str):
         msg = self.normalize_text(user_message)
+
         personnel_keywords = [
             "nhân sự", "nhân viên", "hồ sơ", "mã nhân viên", "mã nv",
             "ma_nv", "person_id", "họ tên", "ngày sinh", "bộ phận"
@@ -215,14 +246,18 @@ Quy tắc trả lời:
 
         if self.extract_person_id(user_message) is not None:
             return "events" if has_event_kw else "personnels"
+
         if self.extract_ma_nv(user_message) is not None:
             return "events" if has_event_kw else "personnels"
+
         if self.extract_cam_id(user_message) is not None:
             return "events"
+
         if self.extract_date(user_message) is not None and (
             "event" in msg or "sự kiện" in msg or "ghi nhận" in msg or "camera" in msg
         ):
             return "events"
+
         if self.extract_event_type(user_message) is not None:
             return "events"
 
@@ -243,7 +278,7 @@ Quy tắc trả lời:
 
         if intent == "personnels":
             broad_words = ["nhân sự", "nhân viên", "ai trong hệ thống", "danh sách nhân sự", "có những ai"]
-            if any(w in msg for w in broad_words):
+            if any(word in msg for word in broad_words):
                 return None
             if self.extract_person_id(user_message) or self.extract_ma_nv(user_message) or self.extract_person_name_candidates(user_message):
                 return None
@@ -260,6 +295,7 @@ Quy tắc trả lời:
                 or self.extract_event_type(user_message) is not None
                 or self.extract_person_name_candidates(user_message)
                 or "gần nhất" in msg
+                or "mới nhất" in msg
                 or "hôm nay" in msg
                 or "sự kiện" in msg
                 or "camera" in msg
@@ -308,7 +344,6 @@ Quy tắc trả lời:
 
         context = {}
         msg_l = self.normalize_text(user_message)
-
         query = {}
         resolved_person = None
 
@@ -338,10 +373,13 @@ Quy tắc trả lời:
 
         if cam_id is not None:
             query["cam_id"] = str(cam_id)
+
         if event_type is not None:
             query["event_type"] = event_type
+
         if date_value is not None:
             query["date"] = date_value
+
         if resolved_person:
             context["resolved_personnel"] = resolved_person
 
@@ -370,38 +408,62 @@ Quy tắc trả lời:
 
     def build_messages(self, session_id: str, user_message: str, context=None):
         history = self._conversations.get(session_id, [])
+
         messages = [{"role": "system", "content": self.system_prompt}]
-        messages.extend(history[-6:])
+        messages.extend(history[-8:])
 
         if context:
             context_json = json.dumps(context, ensure_ascii=False, indent=2)
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        f"Câu hỏi: {user_message}\n\n"
-                        f"CONTEXT_JSON:\n{context_json}\n\n"
-                        f"Nếu câu hỏi liên quan dữ liệu hệ thống thì hãy ưu tiên trả lời dựa trên CONTEXT_JSON. "
-                        f"Nếu dữ liệu không đủ thì nói rõ là chưa đủ dữ liệu. "
-                        f"Nếu người dùng chỉ muốn xuất JSON thì có thể trả JSON hợp lệ."
-                    ),
-                }
-            )
-        else:
-            messages.append({"role": "user", "content": user_message})
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Dưới đây là dữ liệu nội bộ của hệ thống cho lượt hỏi hiện tại. "
+                    "Hãy dùng dữ liệu này nếu câu hỏi liên quan. "
+                    "Không được nhắc đến nguồn dữ liệu này trong câu trả lời.\n\n"
+                    f"{context_json}"
+                )
+            })
+
+        # câu hỏi thật của user luôn nằm cuối
+        messages.append({"role": "user", "content": user_message})
 
         return messages
 
-    def generate_reply(self, messages):
-        self.init_llm()
-        resp = self._llm.create_chat_completion(
-            messages=messages,
-            temperature=0.2,
-            top_p=0.9,
-            max_tokens=384,
-            stream=False,
-        )
-        return (resp["choices"][0]["message"]["content"] or "").strip()
+    def _call_openrouter(self, messages: list[dict]) -> str:
+        if not self.openrouter_api_key:
+            raise ValueError("OPENROUTER_API_KEY chưa được cấu hình")
+
+        url = f"{self.openrouter_base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "max_tokens": 500,
+        }
+
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"OpenRouter API error: {response.status_code} {response.text}"
+            )
+
+        data = response.json()
+        choices = data.get("choices", [])
+        if not choices:
+            raise RuntimeError("OpenRouter không trả về choices hợp lệ")
+
+        content = choices[0].get("message", {}).get("content", "")
+        return (content or "").strip()
+
+    def generate_reply(self, messages: list[dict]) -> str:
+        return self._call_openrouter(messages)
 
     def clear_history(self, session_id: str) -> None:
         self._conversations[session_id] = []
@@ -410,6 +472,7 @@ Quy tắc trả lời:
         db_ok = False
         db_error = None
         collections = []
+
         try:
             self.init_db()
             db_ok = True
@@ -420,113 +483,63 @@ Quy tắc trả lời:
         return {
             "success": True,
             "chatbot_enabled": settings.chatbot_enabled,
-            "model_exists": os.path.exists(settings.chat_model_path),
-            "model_path": settings.chat_model_path,
             "db_ok": db_ok,
             "db_error": db_error,
             "database_name": settings.database_name,
             "collection_map": self._collection_map,
             "collections": collections,
-            "api_provider": self.api_provider,
-            "api_key_configured": bool(self.api_key),
-            "api_model": self.api_model,
+            "openrouter_base_url": self.openrouter_base_url,
+            "openrouter_api_key_configured": bool(self.openrouter_api_key),
+            "model_name": self.model_name,
         }
-
-    def use_api_chat(self, user_message: str) -> dict:
-        if not self.api_key:
-            return {"success": False, "error": "CHAT_API_KEY chưa cấu hình"}
-
-        if self.api_provider == "huggingface":
-            return self._call_huggingface(user_message)
-        elif self.api_provider == "openai":
-            return self._call_openai(user_message)
-        else:
-            return {"success": False, "error": f"CHAT_API_PROVIDER '{self.api_provider}' không hỗ trợ"}
-
-    def _call_huggingface(self, user_message: str) -> dict:
-        try:
-            url = f"https://router.huggingface.co/models/{self.api_model}"
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "inputs": user_message,
-                "options": {"wait_for_model": True},
-            }
-
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            if response.status_code != 200:
-                return {"success": False, "error": f"Hugging Face API error: {response.status_code} {response.text}"}
-
-            data = response.json()
-            if isinstance(data, list) and data:
-                text = data[0].get("generated_text") or data[0].get("text")
-                return {"success": True, "message": text or ""}
-            else:
-                return {"success": False, "error": "Không nhận được phản hồi hợp lệ từ Hugging Face"}
-        except Exception as ex:
-            return {"success": False, "error": f"Lỗi gọi Hugging Face API: {str(ex)}"}
-
-    def _call_openai(self, user_message: str) -> dict:
-        try:
-            url = "https://api.openai.com/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": self.api_model,
-                "messages": [
-                    {"role": "system", "content": "Bạn là trợ lý AI cho hệ thống SmartElevator. Trả lời bằng tiếng Việt tự nhiên, ngắn gọn, rõ ràng."},
-                    {"role": "user", "content": user_message},
-                ],
-                "temperature": 0.7,
-                "max_tokens": 500,
-            }
-
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            if response.status_code != 200:
-                return {"success": False, "error": f"OpenAI API error: {response.status_code} {response.text}"}
-
-            data = response.json()
-            choice = data.get("choices", [])[0] if data.get("choices") else None
-            if choice:
-                message = choice.get("message", {}).get("content", "")
-                return {"success": True, "message": message}
-            else:
-                return {"success": False, "error": "Không nhận được phản hồi hợp lệ từ OpenAI"}
-        except Exception as ex:
-            return {"success": False, "error": f"Lỗi gọi OpenAI API: {str(ex)}"}
 
     def chat(self, user_message: str, session_id: str = "default") -> dict:
         emit_chat_status("received", {"session_id": session_id})
+
+        if not settings.chatbot_enabled:
+            return {"success": False, "message": "Chatbot hiện đang bị tắt."}
+
         if session_id not in self._conversations:
             self._conversations[session_id] = []
 
-        intent = self.detect_intent(user_message)
-        emit_chat_status("intent_detected", {"intent": intent})
+        try:
+            intent = self.detect_intent(user_message)
+            emit_chat_status("intent_detected", {"intent": intent})
 
-        if intent == "general":
-            messages = self.build_messages(session_id, user_message, context=None)
-            assistant_message = self.generate_reply(messages)
-        else:
-            clarification = self.needs_clarification(user_message, intent)
-            if clarification:
-                assistant_message = clarification
-            else:
-                emit_chat_status("querying_mongo", {"intent": intent})
-                context = self.fetch_context(user_message, intent)
-                self.print_context_json(context)
-                emit_chat_status("context_ready", {"intent": intent})
-                messages = self.build_messages(session_id, user_message, context=context)
+            if intent == "general":
+                messages = self.build_messages(session_id, user_message, context=None)
                 assistant_message = self.generate_reply(messages)
+            else:
+                clarification = self.needs_clarification(user_message, intent)
+                if clarification:
+                    assistant_message = clarification
+                else:
+                    emit_chat_status("querying_mongo", {"intent": intent})
+                    context = self.fetch_context(user_message, intent)
+                    self.print_context_json(context)
+                    emit_chat_status("context_ready", {"intent": intent})
+                    messages = self.build_messages(session_id, user_message, context=context)
+                    assistant_message = self.generate_reply(messages)
 
-        self._conversations[session_id].append({"role": "user", "content": user_message})
-        self._conversations[session_id].append({"role": "assistant", "content": assistant_message})
+            self._conversations[session_id].append({"role": "user", "content": user_message})
+            self._conversations[session_id].append({"role": "assistant", "content": assistant_message})
 
-        if len(self._conversations[session_id]) > 12:
-            self._conversations[session_id] = self._conversations[session_id][-12:]
+            if len(self._conversations[session_id]) > 12:
+                self._conversations[session_id] = self._conversations[session_id][-12:]
 
-        emit_chat_status("response_done", {"intent": intent})
-        return {"success": True, "message": assistant_message, "intent": intent}
+            emit_chat_status("response_done", {"intent": intent})
+            return {
+                "success": True,
+                "message": assistant_message,
+                "intent": intent,
+            }
+
+        except Exception as ex:
+            error_message = str(ex)
+            self.logger.exception("Chat error: %s", error_message)
+            emit_chat_status("error", {"message": error_message})
+            return {
+                "success": False,
+                "message": f"Lỗi chatbot: {error_message}",
+                "intent": "error",
+            }
