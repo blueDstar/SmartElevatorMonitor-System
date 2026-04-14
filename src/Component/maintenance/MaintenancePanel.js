@@ -24,7 +24,10 @@ function MaintenancePanel() {
     setError('');
 
     try {
-      const auth = { headers: getAuthHeaders(false) };
+      const auth = {
+        headers: getAuthHeaders(false),
+      };
+
       const [systemRes, cameraRes, chatbotRes, mongoRes, logsRes] = await Promise.all([
         fetch(`${API_BASE}/api/system/health`, auth),
         fetch(`${API_BASE}/api/camera/status`, auth),
@@ -41,17 +44,17 @@ function MaintenancePanel() {
         logsRes.json(),
       ]);
 
-      if (!systemData.success) {
-        throw new Error(systemData.error || 'Không lấy được system health');
+      if (!systemData?.success) {
+        throw new Error(systemData?.error || 'Không lấy được system health');
       }
 
-      setSystemHealth(systemData);
+      setSystemHealth(systemData || null);
       setCameraStatus(cameraData?.status || null);
       setChatbotHealth(chatbotData || null);
       setMongoHealth(mongoData || null);
       setLogs(Array.isArray(logsData?.items) ? logsData.items : []);
     } catch (err) {
-      setError(err.message || 'Lỗi tải dữ liệu maintenance');
+      setError(err?.message || 'Lỗi tải dữ liệu maintenance');
     } finally {
       setLoading(false);
     }
@@ -61,25 +64,26 @@ function MaintenancePanel() {
     setCreatingPlan(true);
 
     const plan = [];
-    const cameraRunning = cameraStatus?.running;
+    const cameraRunning = Boolean(cameraStatus?.running);
     const cameraMode = cameraStatus?.mode || 'unknown';
-    const mongoOk = mongoHealth?.success;
-    const chatbotDbOk = chatbotHealth?.db_ok;
-    const chatbotApiReady =
-      chatbotHealth?.openrouter_api_key_configured && chatbotHealth?.model_name;
+    const mongoOk = Boolean(mongoHealth?.success);
+    const chatbotDbOk = Boolean(chatbotHealth?.db_ok);
+    const chatbotApiReady = Boolean(
+      chatbotHealth?.openrouter_api_key_configured && chatbotHealth?.model_name
+    );
 
     const warningLogs = logs.filter(
-      (item) => String(item.level).toUpperCase() === 'WARNING'
+      (item) => String(item?.level || '').toUpperCase() === 'WARNING'
     );
     const errorLogs = logs.filter(
-      (item) => String(item.level).toUpperCase() === 'ERROR'
+      (item) => String(item?.level || '').toUpperCase() === 'ERROR'
     );
 
     if (!cameraRunning) {
       plan.push({
         date: 'Hôm nay',
         title: 'Kiểm tra lại luồng camera AI',
-        desc: `Camera hiện không chạy hoặc đang ở mode "${cameraMode}". Cần xác minh thiết bị và worker vision.`,
+        desc: `Camera hiện không chạy hoặc đang ở mode "${cameraMode}". Cần xác minh thiết bị, stream và worker vision.`,
         priority: 'high',
       });
     }
@@ -88,16 +92,18 @@ function MaintenancePanel() {
       plan.push({
         date: 'Hôm nay',
         title: 'Rà soát kết nối MongoDB',
-        desc: 'Backend chưa xác nhận kết nối ổn định. Cần kiểm tra URI và network.',
+        desc: 'Backend chưa xác nhận kết nối MongoDB ổn định. Cần kiểm tra URI, network và quyền truy cập.',
         priority: 'high',
       });
     }
 
-    if (!chatbotDbOk || !chatbotModelExists) {
+    if (!chatbotDbOk || !chatbotApiReady) {
       plan.push({
         date: 'Hôm nay',
         title: 'Kiểm tra chatbot runtime',
-        desc: 'Chatbot chưa sẵn sàng. Cần kiểm tra model path và database access.',
+        desc: !chatbotApiReady
+          ? 'Chatbot chưa sẵn sàng do OpenRouter chưa cấu hình đúng hoặc chưa có model name.'
+          : 'Chatbot chưa truy cập được dữ liệu hệ thống. Cần kiểm tra MongoDB access.',
         priority: 'medium',
       });
     }
@@ -115,7 +121,7 @@ function MaintenancePanel() {
       plan.push({
         date: 'Ngay lập tức',
         title: 'Khắc phục log lỗi hệ thống',
-        desc: `Có ${errorLogs.length} log mức ERROR. Ưu tiên kiểm tra backend service.`,
+        desc: `Có ${errorLogs.length} log mức ERROR. Ưu tiên kiểm tra backend service và camera pipeline.`,
         priority: 'high',
       });
     }
@@ -124,7 +130,7 @@ function MaintenancePanel() {
       plan.push({
         date: 'Theo lịch',
         title: 'Bảo trì định kỳ tổng quát',
-        desc: 'Hệ thống ổn định. Tiếp tục kiểm tra định kỳ và backup dữ liệu.',
+        desc: 'Hệ thống hiện ổn định. Tiếp tục theo dõi định kỳ và backup dữ liệu.',
         priority: 'low',
       });
     }
@@ -134,21 +140,28 @@ function MaintenancePanel() {
   };
 
   const statusRows = useMemo(() => {
-    const cameraOk = Boolean(systemHealth?.camera?.success);
+    const cameraOk = Boolean(cameraStatus);
     const mongoOk = Boolean(mongoHealth?.success);
-    const chatbotOk = Boolean(chatbotHealth?.success && chatbotHealth?.db_ok);
+    const chatbotOk = Boolean(
+      chatbotHealth?.success &&
+        chatbotHealth?.db_ok &&
+        chatbotHealth?.openrouter_api_key_configured
+    );
+
     const visionRuntime = cameraStatus?.running
       ? 'Đang hoạt động'
       : cameraStatus?.mode === 'error'
-      ? 'Lỗi'
-      : 'Chưa chạy';
+        ? 'Lỗi'
+        : 'Chưa chạy';
 
     return [
       {
         label: 'Camera AI',
         value: cameraStatus?.running ? 'Đang chạy' : 'Dừng',
         type: cameraStatus?.running ? 'ok' : 'warning',
-        detail: cameraOk ? `Mode: ${cameraStatus?.mode || 'unknown'}` : 'Chưa có phản hồi camera',
+        detail: cameraOk
+          ? `Mode: ${cameraStatus?.mode || 'unknown'}`
+          : 'Chưa có phản hồi camera',
       },
       {
         label: 'Chatbot Server',
@@ -164,21 +177,31 @@ function MaintenancePanel() {
         type: mongoOk ? 'ok' : 'warning',
         detail: mongoOk
           ? `${(mongoHealth?.collections || []).length} collections`
-          : (mongoHealth?.error || 'Không có dữ liệu'),
+          : mongoHealth?.error || 'Không có dữ liệu',
       },
       {
         label: 'Vision Runtime',
         value: visionRuntime,
-        type: cameraStatus?.running ? 'ok' : cameraStatus?.mode === 'error' ? 'danger' : 'warning',
+        type: cameraStatus?.running
+          ? 'ok'
+          : cameraStatus?.mode === 'error'
+            ? 'danger'
+            : 'warning',
         detail: cameraStatus?.note || 'Không có ghi chú',
       },
     ];
-  }, [systemHealth, mongoHealth, chatbotHealth, cameraStatus]);
+  }, [cameraStatus, chatbotHealth, mongoHealth]);
 
   const metrics = useMemo(() => {
-    const warningCount = logs.filter((item) => String(item.level).toUpperCase() === 'WARNING').length;
-    const errorCount = logs.filter((item) => String(item.level).toUpperCase() === 'ERROR').length;
-    const infoCount = logs.filter((item) => String(item.level).toUpperCase() === 'INFO').length;
+    const warningCount = logs.filter(
+      (item) => String(item?.level || '').toUpperCase() === 'WARNING'
+    ).length;
+    const errorCount = logs.filter(
+      (item) => String(item?.level || '').toUpperCase() === 'ERROR'
+    ).length;
+    const infoCount = logs.filter(
+      (item) => String(item?.level || '').toUpperCase() === 'INFO'
+    ).length;
 
     return [
       { label: 'CPU', value: systemHealth?.features?.vision_enabled ? 'Active' : 'Inactive' },
@@ -194,15 +217,17 @@ function MaintenancePanel() {
 
   const recentMaintenanceItems = useMemo(() => {
     const items = logs
-      .filter((item) => ['camera', 'system', 'mongo', 'chatbot'].includes(item.module))
+      .filter((item) => ['camera', 'system', 'mongo', 'chatbot'].includes(item?.module))
       .slice(0, 8)
       .map((item) => ({
-        time: item.timestamp || '--',
-        title: `[${item.module.toUpperCase()}] ${item.message}`,
-        level: String(item.level || 'INFO').toUpperCase(),
+        time: item?.timestamp || '--',
+        title: `[${String(item?.module || 'system').toUpperCase()}] ${item?.message || 'Không có nội dung'}`,
+        level: String(item?.level || 'INFO').toUpperCase(),
       }));
 
-    return items.length > 0 ? items : [{ time: '--', title: 'Chưa có log gần đây', level: 'INFO' }];
+    return items.length > 0
+      ? items
+      : [{ time: '--', title: 'Chưa có log gần đây', level: 'INFO' }];
   }, [logs]);
 
   return (
