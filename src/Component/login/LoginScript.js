@@ -2,6 +2,13 @@ import React, { useMemo, useState } from 'react';
 import { API_BASE, saveSession } from '../../authStorage';
 import './LoginStyle.scss';
 
+const DEV_LOGIN_ENABLED =
+  process.env.NODE_ENV === 'development' &&
+  process.env.REACT_APP_ENABLE_DEV_LOGIN === 'true';
+
+const DEV_ADMIN_USERNAME = 'admin';
+const DEV_ADMIN_PASSWORD = 'admin123';
+
 function LoginScript({ onLoginSuccess }) {
   const [isRegister, setIsRegister] = useState(false);
   const [form, setForm] = useState({
@@ -49,6 +56,37 @@ function LoginScript({ onLoginSuccess }) {
     });
   };
 
+  const handleDevLogin = () => {
+    const username = form.username.trim();
+    const password = form.password;
+
+    if (
+      DEV_LOGIN_ENABLED &&
+      !isRegister &&
+      username === DEV_ADMIN_USERNAME &&
+      password === DEV_ADMIN_PASSWORD
+    ) {
+      const mockUser = {
+        id: 'dev-admin',
+        username: 'admin',
+        role: 'admin',
+        full_name: 'Development Admin',
+      };
+
+      const mockToken = 'dev-local-token';
+
+      saveSession(mockUser, mockToken);
+
+      if (typeof onLoginSuccess === 'function') {
+        onLoginSuccess({ user: mockUser, token: mockToken });
+      }
+
+      return true;
+    }
+
+    return false;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -70,6 +108,11 @@ function LoginScript({ onLoginSuccess }) {
     setSuccessMessage('');
 
     try {
+      if (handleDevLogin()) {
+        setIsLoading(false);
+        return;
+      }
+
       const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
 
       const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -94,11 +137,12 @@ function LoginScript({ onLoginSuccess }) {
           onLoginSuccess({ user: data.user, token: data.access_token });
           setSuccessMessage('');
         } else {
-          setSuccessMessage('Dang ky thanh cong. Hay dang nhap bang tai khoan vua tao.');
+          setSuccessMessage('Đăng ký thành công. Hãy đăng nhập bằng tài khoản vừa tạo.');
         }
         setIsRegister(false);
         resetForm();
       } else if (typeof onLoginSuccess === 'function' && data.access_token && data.user) {
+        saveSession(data.user, data.access_token);
         onLoginSuccess({ user: data.user, token: data.access_token });
       }
     } catch (err) {
@@ -264,6 +308,12 @@ function LoginScript({ onLoginSuccess }) {
                 </div>
               )}
 
+              {DEV_LOGIN_ENABLED && !isRegister && (
+                <div className="login-success">
+                  Dev mode: có thể đăng nhập local bằng admin / admin123
+                </div>
+              )}
+
               {error && <div className="login-error">{error}</div>}
               {successMessage && <div className="login-success">{successMessage}</div>}
 
@@ -273,8 +323,12 @@ function LoginScript({ onLoginSuccess }) {
                 disabled={isLoading}
               >
                 {isLoading
-                  ? (isRegister ? 'Đang đăng ký...' : 'Đang xác thực...')
-                  : (isRegister ? 'Đăng ký ngay' : 'Đăng nhập')}
+                  ? isRegister
+                    ? 'Đang đăng ký...'
+                    : 'Đang xác thực...'
+                  : isRegister
+                    ? 'Đăng ký ngay'
+                    : 'Đăng nhập'}
               </button>
 
               <div className="login-helper" style={{ textAlign: 'center', marginTop: '15px' }}>
