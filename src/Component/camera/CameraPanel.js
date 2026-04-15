@@ -4,6 +4,8 @@ import { API_BASE, getAuthHeaders, getStoredToken, SOCKET_URL } from '../../auth
 import './CameraPanel.scss';
 
 const ROTATE_SEQUENCE = ['none', '90deg', '180deg', '270deg'];
+const INFERENCE_INTERVAL_MS = 350;
+const MAX_UPLOAD_WIDTH = 960;
 
 const normalizeRotate = (value) => {
   if (!value || value === 'none') return 'none';
@@ -17,6 +19,14 @@ const getNextRotate = (current) => {
   const normalized = normalizeRotate(current);
   const currentIndex = ROTATE_SEQUENCE.indexOf(normalized);
   return ROTATE_SEQUENCE[(currentIndex + 1) % ROTATE_SEQUENCE.length];
+};
+
+const classColor = (className = '') => {
+  const name = String(className).toLowerCase();
+  if (name === 'person') return '#24ff9a';
+  if (name === 'bottle') return '#55a8ff';
+  if (name.includes('phone')) return '#ffcf5a';
+  return '#ff6f91';
 };
 
 function CameraPanel() {
@@ -57,6 +67,12 @@ function CameraPanel() {
 
   const [logs, setLogs] = useState([]);
   const [events, setEvents] = useState([]);
+  const [inferStats, setInferStats] = useState({
+    inference_ms: 0,
+    detected_count: 0,
+    people_count: 0,
+    detected_classes: [],
+  });
 
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalLines, setTerminalLines] = useState([
@@ -67,19 +83,31 @@ function CameraPanel() {
 
   const socketRef = useRef(null);
   const statusIntervalRef = useRef(null);
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
+  const inferenceTimerRef = useRef(null);
   const snapshotTimeoutRef = useRef(null);
 
-  // Webcam trình duyệt: backend worker có thể `running: false`
-  // không được xóa preview khi poll/socket.
+  const videoRef = useRef(null);
+  const overlayCanvasRef = useRef(null);
+  const captureCanvasRef = useRef(null);
+  const streamRef = useRef(null);
+
   const isUserWebcamRef = useRef(false);
+  const pausedRef = useRef(false);
+  const inferenceInFlightRef = useRef(false);
+  const latestInferenceRef = useRef(null);
+  const lastDetectionCountRef = useRef(-1);
 
   const clearPolling = useCallback(() => {
     if (statusIntervalRef.current) {
       clearInterval(statusIntervalRef.current);
       statusIntervalRef.current = null;
+    }
+  }, []);
+
+  const clearInferenceLoop = useCallback(() => {
+    if (inferenceTimerRef.current) {
+      clearTimeout(inferenceTimerRef.current);
+      inferenceTimerRef.current = null;
     }
   }, []);
 
@@ -103,6 +131,83 @@ function CameraPanel() {
 
   const showToast = useCallback((type, message) => {
     setToast({ type, message });
+  }, []);
+
+  const resetInferencePreview = useCallback(() => {
+    latestInferenceRef.current = null;
+    lastDetectionCountRef.current = -1;
+    setInferStats({
+      inference_ms: 0,
+      detected_count: 0,
+      people_count: 0,
+      detected_classes: [],
+    });
+
+    const canvas = overlayCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+      }
+    }
+  }, []);
+
+  const drawDetectionOverlay = useCallback(() => {
+    const canvas = overlayCanvasRef.current;
+    const video = videoRef.current;
+    const result = latestInferenceRef.current;
+
+    if (!canvas || !video || !video.videoWidth || !video.videoHeight) {
+      return;
+    }
+
+    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!result?.detections?.length) {
+      return;
+    }
+
+    const baseWidth = Math.max(result.image_width || video.videoWidth, 1);
+    const baseHeight = Math.max(result.image_height || video.videoHeight, 1);
+    const scaleX = video.videoWidth / baseWidth;
+    const scaleY = video.videoHeight / baseHeight;
+
+    result.detections.forEach((det) => {
+      const [x1, y1, x2, y2] = det.xyxy || [0, 0, 0, 0];
+      const left = x1 * scaleX;
+      const top = y1 * scaleY;
+      const width = Math.max((x2 - x1) * scaleX, 1);
+      const height = Math.max((y2 - y1) * scaleY, 1);
+      const color = classColor(det.class_name);
+      const label = det.label || det.class_name || 'object';
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, Math.round(canvas.width / 420));
+      ctx.strokeRect(left, top, width, height);
+
+      const fontSize = Math.max(12, Math.round(canvas.width / 52));
+      ctx.font = `600 ${fontSize}px Inter, Arial, sans-serif`;
+      const labelWidth = ctx.measureText(label).width + 14;
+      const labelHeight = fontSize + 10;
+      const labelTop = Math.max(0, top - labelHeight - 6);
+
+      ctx.fillStyle = 'rgba(4, 18, 33, 0.84)';
+      ctx.fillRect(left, labelTop, labelWidth, labelHeight);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(left, labelTop, labelWidth, labelHeight);
+
+      ctx.fillStyle = '#eaf6ff';
+      ctx.fillText(label, left + 7, labelTop + fontSize + 1);
+    });
   }, []);
 
   const openControlModal = useCallback((type) => {
@@ -276,6 +381,7 @@ function CameraPanel() {
 
     return () => {
       clearPolling();
+      clearInferenceLoop();
 
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -291,16 +397,22 @@ function CameraPanel() {
         snapshotTimeoutRef.current = null;
       }
 
+      inferenceInFlightRef.current = false;
       isUserWebcamRef.current = false;
       setUserCameraActive(false);
+      resetInferencePreview();
     };
-  }, [initModule, clearPolling]);
+  }, [initModule, clearPolling, clearInferenceLoop, resetInferencePreview]);
 
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 2500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    pausedRef.current = Boolean(cameraStatus.paused);
+  }, [cameraStatus.paused]);
 
   useEffect(() => {
     if (!snapshotImage) return undefined;
@@ -360,6 +472,7 @@ function CameraPanel() {
       const onMeta = () => {
         el.play().catch(() => {});
         setPreviewAvailable(true);
+        drawDetectionOverlay();
       };
 
       el.addEventListener('loadedmetadata', onMeta, { once: true });
@@ -371,12 +484,12 @@ function CameraPanel() {
     return () => {
       cancelled = true;
     };
-  }, [userCameraActive]);
+  }, [userCameraActive, drawDetectionOverlay]);
 
   const startUserCamera = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Trinh duyet khong ho tro getUserMedia');
+        throw new Error('Trình duyệt không hỗ trợ getUserMedia');
       }
 
       let stream;
@@ -401,28 +514,35 @@ function CameraPanel() {
 
       streamRef.current = stream;
       isUserWebcamRef.current = true;
+      inferenceInFlightRef.current = false;
+      resetInferencePreview();
 
       setUserCameraActive(true);
       setPreviewAvailable(false);
       setCameraStatus((prev) => ({
         ...prev,
         running: true,
+        paused: false,
         mode: 'running',
         note: 'User camera active',
       }));
       pushLog('camera', 'INFO', 'User camera started');
+      showToast('success', 'Đã mở camera người dùng');
     } catch (error) {
       isUserWebcamRef.current = false;
       streamRef.current = null;
       setUserCameraActive(false);
       setPreviewAvailable(false);
+      resetInferencePreview();
       pushLog('camera', 'ERROR', `Cannot access user camera: ${error.message}`);
-      showToast('error', 'Khong the truy cap camera nguoi dung');
+      showToast('error', 'Không thể truy cập camera người dùng');
     }
-  }, [pushLog, showToast]);
+  }, [pushLog, resetInferencePreview, showToast]);
 
   const stopUserCamera = useCallback(() => {
     isUserWebcamRef.current = false;
+    clearInferenceLoop();
+    inferenceInFlightRef.current = false;
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -435,72 +555,129 @@ function CameraPanel() {
 
     setUserCameraActive(false);
     setPreviewAvailable(false);
+    resetInferencePreview();
     setCameraStatus((prev) => ({
       ...prev,
       running: false,
+      paused: false,
       mode: 'stopped',
       note: 'User camera stopped',
+      people_count: 0,
+      last_event: null,
     }));
     pushLog('camera', 'INFO', 'User camera stopped');
-  }, [pushLog]);
+  }, [clearInferenceLoop, pushLog, resetInferencePreview]);
 
   const captureAndInfer = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (inferenceInFlightRef.current) return;
+    if (!isUserWebcamRef.current || pausedRef.current) return;
 
-    const canvas = canvasRef.current;
     const video = videoRef.current;
-    const ctx = canvas.getContext('2d');
+    const captureCanvas = captureCanvasRef.current;
+    if (!video || !captureCanvas || !video.videoWidth || !video.videoHeight) {
+      return;
+    }
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
+    inferenceInFlightRef.current = true;
 
-    canvas.toBlob(async (blob) => {
-      const reader = new FileReader();
+    try {
+      const ratio = Math.min(1, MAX_UPLOAD_WIDTH / video.videoWidth);
+      const uploadWidth = Math.max(1, Math.round(video.videoWidth * ratio));
+      const uploadHeight = Math.max(1, Math.round(video.videoHeight * ratio));
 
-      reader.onload = async () => {
-        const base64 = reader.result;
+      if (captureCanvas.width !== uploadWidth || captureCanvas.height !== uploadHeight) {
+        captureCanvas.width = uploadWidth;
+        captureCanvas.height = uploadHeight;
+      }
 
-        try {
-          const res = await fetch(`${API_BASE}/api/camera/user-frame`, {
-            method: 'POST',
-            headers: getAuthHeaders(true),
-            body: JSON.stringify({ image_base64: base64 }),
-          });
+      const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: false });
+      captureCtx.drawImage(video, 0, 0, uploadWidth, uploadHeight);
 
-          const data = await res.json();
+      const blob = await new Promise((resolve) => {
+        captureCanvas.toBlob(resolve, 'image/jpeg', 0.76);
+      });
 
-          if (data.success) {
-            setCameraStatus((prev) => ({
-              ...prev,
-              people_count: data.detections ? data.detections.length : 0,
-              last_event:
-                data.detections && data.detections.length > 0 ? 'DETECTED' : null,
-            }));
-            pushLog(
-              'camera',
-              'INFO',
-              `Detected ${data.detections ? data.detections.length : 0} objects`
-            );
-          } else {
-            pushLog('camera', 'ERROR', data.error || 'Inference failed');
-          }
-        } catch (error) {
-          pushLog('camera', 'ERROR', `Inference error: ${error.message}`);
-        }
-      };
+      if (!blob) {
+        throw new Error('Không tạo được ảnh frame để detect');
+      }
 
-      reader.readAsDataURL(blob);
-    }, 'image/jpeg');
-  }, [pushLog]);
+      const formData = new FormData();
+      formData.append('frame', blob, 'frame.jpg');
+
+      const res = await fetch(`${API_BASE}/api/camera/user-frame`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Inference failed');
+      }
+
+      latestInferenceRef.current = data;
+      setInferStats({
+        inference_ms: Number(data.inference_ms || 0),
+        detected_count: Number(data.detected_count || 0),
+        people_count: Number(data.people_count || 0),
+        detected_classes: Array.isArray(data.detected_classes) ? data.detected_classes : [],
+      });
+
+      setCameraStatus((prev) => ({
+        ...prev,
+        people_count: Number(data.people_count || 0),
+        last_event: data.detected_count > 0 ? 'DETECTED' : null,
+        note:
+          data.detected_count > 0
+            ? `AI detect realtime • ${data.detected_count} objects`
+            : 'AI detect realtime • no object',
+      }));
+
+      if (lastDetectionCountRef.current !== data.detected_count) {
+        lastDetectionCountRef.current = data.detected_count;
+        pushTerminal(
+          `detect -> ${data.detected_count} objects | person ${data.people_count || 0} | ${Number(
+            data.inference_ms || 0
+          ).toFixed(0)} ms`
+        );
+      }
+
+      drawDetectionOverlay();
+    } catch (error) {
+      pushLog('camera', 'ERROR', `Inference error: ${error.message}`);
+      showToast('error', 'Detect realtime gặp lỗi');
+    } finally {
+      inferenceInFlightRef.current = false;
+    }
+  }, [drawDetectionOverlay, pushLog, pushTerminal, showToast]);
 
   useEffect(() => {
-    if (previewAvailable && !cameraStatus.paused) {
-      const interval = setInterval(captureAndInfer, 2000);
-      return () => clearInterval(interval);
+    if (!userCameraActive || !previewAvailable || cameraStatus.paused) {
+      clearInferenceLoop();
+      return undefined;
     }
-    return undefined;
-  }, [previewAvailable, captureAndInfer, cameraStatus.paused]);
+
+    let cancelled = false;
+
+    const runLoop = async () => {
+      if (cancelled) return;
+      await captureAndInfer();
+      if (cancelled || pausedRef.current || !isUserWebcamRef.current) return;
+      inferenceTimerRef.current = setTimeout(runLoop, INFERENCE_INTERVAL_MS);
+    };
+
+    runLoop();
+
+    return () => {
+      cancelled = true;
+      clearInferenceLoop();
+    };
+  }, [userCameraActive, previewAvailable, cameraStatus.paused, captureAndInfer, clearInferenceLoop]);
+
+  useEffect(() => {
+    drawDetectionOverlay();
+  }, [drawDetectionOverlay, cameraStatus.mirror, cameraStatus.rotate, previewAvailable]);
 
   const postJson = async (url, body = {}) => {
     const res = await fetch(url, {
@@ -598,6 +775,7 @@ function CameraPanel() {
     } else {
       videoRef.current.pause();
       clearPolling();
+      clearInferenceLoop();
       setCameraStatus((prev) => ({
         ...prev,
         paused: true,
@@ -668,10 +846,11 @@ function CameraPanel() {
       videoRef.current.srcObject = streamRef.current;
       videoRef.current.play().catch(() => {});
       setPreviewAvailable(true);
+      drawDetectionOverlay();
     }
 
-    showToast('info', 'Da refresh stream');
-  }, [fetchCameraStatus, showToast]);
+    showToast('info', 'Đã refresh stream');
+  }, [drawDetectionOverlay, fetchCameraStatus, showToast]);
 
   const handleMenu = useCallback(() => {
     setTerminalDrawerOpen(true);
@@ -748,6 +927,7 @@ function CameraPanel() {
 
   const onPreviewLoad = () => {
     setPreviewAvailable(true);
+    drawDetectionOverlay();
   };
 
   const onPreviewError = () => {
@@ -823,7 +1003,23 @@ function CameraPanel() {
             muted
             autoPlay
           />
-          <canvas ref={canvasRef} style={{ display: 'none' }} />
+          <canvas
+            ref={overlayCanvasRef}
+            className="camera-preview-card__overlay"
+            style={{ transform: previewTransform }}
+          />
+          <canvas ref={captureCanvasRef} className="camera-preview-card__hidden-canvas" />
+
+          <div className="camera-preview-card__ai-badge">
+            <span>AI detect</span>
+            <strong>
+              {inferStats.detected_count} object{inferStats.detected_count === 1 ? '' : 's'}
+            </strong>
+            <small>
+              {inferStats.inference_ms ? `${inferStats.inference_ms.toFixed(0)} ms` : 'warming up'}
+            </small>
+          </div>
+
           {!previewAvailable && (
             <div className="camera-preview-card__video-wait" aria-hidden>
               Đang kết nối camera...
@@ -837,7 +1033,7 @@ function CameraPanel() {
       <div className="camera-preview-card__placeholder">
         <img src="/logo/Camera1.png" alt="Camera" />
         <h5>Camera chưa chạy</h5>
-        <p>Nhấn "Mở camera" để truy cập camera của bạn và hiển thị hình trong khung này.</p>
+        <p>Nhấn "Mở camera" để truy cập camera của bạn và hiển thị detect realtime trong khung này.</p>
       </div>
     );
   };
@@ -848,7 +1044,7 @@ function CameraPanel() {
         <div className="camera-panel__hero-text">
           <div className="camera-panel__badge">CAMERA AI</div>
           <h3>Giám sát camera AI</h3>
-          <p>Hiển thị camera người dùng, gửi frame để xử lý AI và nhận trạng thái realtime.</p>
+          <p>Hiển thị camera người dùng, gửi frame lên backend để detect realtime và vẽ box trực tiếp trên video.</p>
         </div>
 
         <div className="camera-panel__hero-actions">
@@ -895,11 +1091,10 @@ function CameraPanel() {
         <div className="camera-chip">Mirror: {cameraStatus.mirror ? 'On' : 'Off'}</div>
         <div className="camera-chip">Rotate: {cameraStatus.rotate || 'none'}</div>
         <div className="camera-chip">YOLO: {cameraStatus.yolo_every_n}</div>
-        <div className="camera-chip">
-          Sim: {Number(cameraStatus.sim_threshold || 0).toFixed(2)}
-        </div>
-        <div className="camera-chip">FPS: {cameraStatus.fps || 0}</div>
-        <div className="camera-chip">People: {cameraStatus.people_count || 0}</div>
+        <div className="camera-chip">Sim: {Number(cameraStatus.sim_threshold || 0).toFixed(2)}</div>
+        <div className="camera-chip">People: {inferStats.people_count || 0}</div>
+        <div className="camera-chip">Detect: {inferStats.detected_count || 0}</div>
+        <div className="camera-chip">Latency: {inferStats.inference_ms ? `${inferStats.inference_ms.toFixed(0)} ms` : '--'}</div>
         <div className="camera-chip event">Last event: {cameraStatus.last_event || 'None'}</div>
       </div>
 
@@ -911,7 +1106,7 @@ function CameraPanel() {
               <span>
                 {userCameraActive
                   ? previewAvailable
-                    ? 'Camera người dùng đang hiển thị và gửi frame để xử lý AI'
+                    ? 'Camera người dùng đang hiển thị và detect realtime trên từng frame.'
                     : 'Đang kết nối camera người dùng'
                   : 'Camera chưa chạy'}
               </span>
@@ -1027,6 +1222,29 @@ function CameraPanel() {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+
+          <div className="camera-control-card__events">
+            <div className="camera-control-card__events-title">Detect summary</div>
+            <div className="camera-control-card__events-list">
+              <div className="camera-mini-event">
+                <div className="camera-mini-event__type">Objects</div>
+                <div className="camera-mini-event__meta">
+                  <span>{inferStats.detected_count || 0} detections</span>
+                  <span>{inferStats.people_count || 0} persons</span>
+                </div>
+              </div>
+              <div className="camera-mini-event">
+                <div className="camera-mini-event__type">Classes</div>
+                <div className="camera-mini-event__meta">
+                  <span>
+                    {inferStats.detected_classes?.length > 0
+                      ? inferStats.detected_classes.join(', ')
+                      : 'No object'}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

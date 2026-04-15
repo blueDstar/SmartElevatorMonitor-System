@@ -41,18 +41,27 @@ def camera_stream():
 
 @camera_bp.route("/api/camera/user-frame", methods=["POST"])
 def camera_user_frame():
-    data = request.get_json(silent=True) or {}
-    image_base64 = (data.get("image_base64") or "").strip()
-    if not image_base64:
-        return jsonify({"success": False, "error": "Thiếu image_base64"}), 400
+    frame = None
 
-    if "," in image_base64:
-        _, image_base64 = image_base64.split(",", 1)
+    if "frame" in request.files:
+        uploaded = request.files["frame"]
+        image_data = uploaded.read()
+        np_img = np.frombuffer(image_data, np.uint8)
+        frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+    else:
+        data = request.get_json(silent=True) or {}
+        image_base64 = (data.get("image_base64") or "").strip()
+        if not image_base64:
+            return jsonify({"success": False, "error": "Thiếu frame hoặc image_base64"}), 400
 
-    try:
+        if "," in image_base64:
+            _, image_base64 = image_base64.split(",", 1)
+
         image_data = base64.b64decode(image_base64)
         np_img = np.frombuffer(image_data, np.uint8)
         frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+
+    try:
         if frame is None:
             raise ValueError("Không giải mã được hình ảnh")
 

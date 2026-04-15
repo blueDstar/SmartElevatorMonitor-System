@@ -67,6 +67,9 @@ class CameraService:
         self._preview_lock = threading.Lock()
         self._latest_frame_jpeg: bytes | None = None
         self._user_model = None
+        self._user_model_lock = threading.Lock()
+        self._user_model_names: dict[int, str] = {}
+        self._user_last_infer_ts = 0.0
 
         self._preview_condition = threading.Condition()
         self._last_preview_emit_ts = 0.0
@@ -82,16 +85,39 @@ class CameraService:
         with self._preview_lock:
             return self._latest_frame_jpeg
 
+    def _ensure_user_model(self):
+        if self._user_model is not None:
+            return self._user_model
+
+        with self._user_model_lock:
+            if self._user_model is None:
+                model = YOLO(settings.yolo_det_model_path)
+                names = getattr(model, "names", None)
+                if isinstance(names, dict):
+                    self._user_model_names = {int(k): str(v) for k, v in names.items()}
+                elif isinstance(names, list):
+                    self._user_model_names = {idx: str(name) for idx, name in enumerate(names)}
+                else:
+                    self._user_model_names = {}
+                self._user_model = model
+
+        return self._user_model
+
     def infer_user_frame(self, frame) -> dict:
         if frame is None:
             return {"success": False, "error": "Frame is missing"}
 
         try:
-            if self._user_model is None:
-                self._user_model = YOLO(settings.yolo_det_model_path)
+            model = self._ensure_user_model()
+            started_at = time.perf_counter()
+            result = model.predict(frame, verbose=False)
+            infer_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
 
-            result = self._user_model(frame)
             detections = []
+            detected_classes = []
+            seen_classes = set()
+            people_count = 0
+            frame_h, frame_w = frame.shape[:2]
 
             if result and len(result) > 0:
                 boxes = getattr(result[0], "boxes", None)
@@ -101,21 +127,80 @@ class CameraService:
                     conf_list = getattr(boxes, "conf", None)
 
                     if xyxy_list is not None:
-                        xyxy_values = xyxy_list.cpu().numpy().tolist() if hasattr(xyxy_list, "cpu") else xyxy_list.numpy().tolist()
+                        xyxy_values = (
+                            xyxy_list.cpu().numpy().tolist()
+                            if hasattr(xyxy_list, "cpu")
+                            else xyxy_list.numpy().tolist()
+                        )
                     else:
                         xyxy_values = []
 
-                    cls_values = cls_list.cpu().numpy().astype(int).tolist() if hasattr(cls_list, "cpu") else cls_list.numpy().astype(int).tolist() if cls_list is not None else []
-                    conf_values = conf_list.cpu().numpy().tolist() if hasattr(conf_list, "cpu") else conf_list.numpy().tolist() if conf_list is not None else []
+                    cls_values = (
+                        cls_list.cpu().numpy().astype(int).tolist()
+                        if hasattr(cls_list, "cpu")
+                        else cls_list.numpy().astype(int).tolist()
+                        if cls_list is not None
+                        else []
+                    )
+                    conf_values = (
+                        conf_list.cpu().numpy().tolist()
+                        if hasattr(conf_list, "cpu")
+                        else conf_list.numpy().tolist()
+                        if conf_list is not None
+                        else []
+                    )
 
                     for idx, box in enumerate(xyxy_values):
-                        detections.append({
-                            "xyxy": box,
-                            "class_id": int(cls_values[idx]) if idx < len(cls_values) else None,
-                            "confidence": float(conf_values[idx]) if idx < len(conf_values) else None,
-                        })
+                        confidence = float(conf_values[idx]) if idx < len(conf_values) else None
+                        if confidence is not None and confidence < 0.25:
+                            continue
 
-            return {"success": True, "detections": detections}
+                        class_id = int(cls_values[idx]) if idx < len(cls_values) else None
+                        class_name = self._user_model_names.get(class_id, f"class_{class_id}") if class_id is not None else "unknown"
+                        if class_name == "person":
+                            people_count += 1
+
+                        if class_name not in seen_classes:
+                            seen_classes.add(class_name)
+                            detected_classes.append(class_name)
+
+                        x1, y1, x2, y2 = [float(v) for v in box]
+                        detections.append(
+                            {
+                                "xyxy": [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)],
+                                "class_id": class_id,
+                                "class_name": class_name,
+                                "confidence": round(confidence, 4) if confidence is not None else None,
+                                "label": f"{class_name} {confidence:.2f}" if confidence is not None else class_name,
+                            }
+                        )
+
+            now = time.time()
+            fps = 0.0
+            if self._user_last_infer_ts > 0:
+                delta = now - self._user_last_infer_ts
+                if delta > 0:
+                    fps = round(1.0 / delta, 2)
+            self._user_last_infer_ts = now
+
+            self.state.preview_ready = True
+            self.state.last_frame_ts = now
+            self.state.people_count = people_count
+            self.state.fps = fps
+            self.state.last_event = "DETECTED" if detections else None
+            self.state.note = f"User-frame inference active ({len(detections)} detections)"
+            self.emit_status()
+
+            return {
+                "success": True,
+                "image_width": int(frame_w),
+                "image_height": int(frame_h),
+                "people_count": int(people_count),
+                "detected_count": int(len(detections)),
+                "detected_classes": detected_classes,
+                "inference_ms": infer_ms,
+                "detections": detections,
+            }
         except Exception as ex:
             self.logger.exception(f"User frame inference failed: {ex}")
             return {"success": False, "error": str(ex)}
