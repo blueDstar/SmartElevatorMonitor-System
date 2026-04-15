@@ -308,12 +308,6 @@ function LoginScript({ onLoginSuccess }) {
                 </div>
               )}
 
-              {DEV_LOGIN_ENABLED && !isRegister && (
-                <div className="login-success">
-                  Dev mode: có thể đăng nhập local bằng admin / admin123
-                </div>
-              )}
-
               {error && <div className="login-error">{error}</div>}
               {successMessage && <div className="login-success">{successMessage}</div>}
 

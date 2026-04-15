@@ -70,6 +70,7 @@ function CameraPanel() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+  const snapshotTimeoutRef = useRef(null);
 
   // Webcam trình duyệt: backend worker có thể `running: false`
   // không được xóa preview khi poll/socket.
@@ -285,6 +286,11 @@ function CameraPanel() {
         streamRef.current = null;
       }
 
+      if (snapshotTimeoutRef.current) {
+        clearTimeout(snapshotTimeoutRef.current);
+        snapshotTimeoutRef.current = null;
+      }
+
       isUserWebcamRef.current = false;
       setUserCameraActive(false);
     };
@@ -295,6 +301,26 @@ function CameraPanel() {
     const t = setTimeout(() => setToast(null), 2500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (!snapshotImage) return undefined;
+
+    if (snapshotTimeoutRef.current) {
+      clearTimeout(snapshotTimeoutRef.current);
+    }
+
+    snapshotTimeoutRef.current = setTimeout(() => {
+      setSnapshotImage(null);
+      snapshotTimeoutRef.current = null;
+    }, 5000);
+
+    return () => {
+      if (snapshotTimeoutRef.current) {
+        clearTimeout(snapshotTimeoutRef.current);
+        snapshotTimeoutRef.current = null;
+      }
+    };
+  }, [snapshotImage]);
 
   useEffect(() => {
     if (cameraStatus.running || isUserWebcamRef.current) {
