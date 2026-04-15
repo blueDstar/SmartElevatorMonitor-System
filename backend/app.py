@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import eventlet
-eventlet.monkey_patch()
+# import eventlet
+# eventlet.monkey_patch()
 
 from flask import Flask
 from flask_cors import CORS
@@ -37,16 +37,16 @@ CORS(
 socketio = init_socketio(app, cors_allowed_origins=_origins)
 register_blueprints(app)
 
-try:
-    mongo_service.connect()
-except Exception as ex:
-    logger.warning(f"Mongo init failed: {ex}")
+# try:
+#     mongo_service.connect()
+# except Exception as ex:
+#     logger.warning(f"Mongo init failed: {ex}")
 
-if settings.chatbot_enabled:
-    try:
-        chat_service.init_db()
-    except Exception as ex:
-        logger.warning(f"Chat service DB init failed: {ex}")
+# if settings.chatbot_enabled:
+#     try:
+#         chat_service.init_db()
+#     except Exception as ex:
+#         logger.warning(f"Chat service DB init failed: {ex}")
 
 
 @socketio.on("connect")
