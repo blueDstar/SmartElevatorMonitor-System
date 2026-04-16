@@ -6,13 +6,13 @@ import cv2
 import numpy as np
 from flask import Blueprint, Response, g, jsonify, request, stream_with_context
 
-from services import camera_service as _cam_module
+from services import camera_service
 from services.auth_guard import enforce_jwt
 
 camera_bp = Blueprint("camera_bp", __name__)
 
 # Convenience alias
-_svc = _cam_module.camera_service
+_svc = camera_service
 
 
 # ─── Auth middleware ───────────────────────────────────────────────────────────

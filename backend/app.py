@@ -66,8 +66,8 @@ if __name__ == "__main__":
     import eventlet as _ev
     _ev.monkey_patch()
 
-    from services import camera_service as _cam
-    _ev.spawn_after(4, _cam.camera_service.preload_model)
+    from services import camera_service
+    _ev.spawn_after(4, camera_service.preload_model)
 
     logger.info(
         f"SmartElevator backend running on {settings.flask_host}:{settings.flask_port}"

@@ -6,15 +6,17 @@
 # imports threading / socket before monkey_patch will not be
 # properly greened and will cause the RLock warning.
 # ============================================================
-import eventlet          # noqa: E402  (must be absolute first import)
-eventlet.monkey_patch()  # noqa: E402  (must run before any other import)
-
 import os               # noqa: E402
 import sys              # noqa: E402
+import eventlet         # noqa: E402
+
+# Gunicorn's eventlet worker patches automatically. Doing it again causes warnings.
+if "gunicorn" not in sys.argv[0] and "gunicorn" not in os.environ.get("SERVER_SOFTWARE", ""):
+    eventlet.monkey_patch()
 
 # After monkey_patch it is safe to import Flask app and services
 from app import app, socketio          # noqa: E402
-from services import camera_service as _cam_module  # noqa: E402
+from services import camera_service    # noqa: E402
 
 # Gunicorn looks for 'application'
 application = app
@@ -31,7 +33,7 @@ def _background_warmup():
     """
     eventlet.sleep(4)  # Let worker settle after fork
     try:
-        _cam_module.camera_service.preload_model()
+        camera_service.preload_model()
     except Exception as exc:  # pylint: disable=broad-except
         # Use stderr — the structured logger might not be fully ready yet
         print(f"[wsgi] WARN: Model warmup failed: {exc}", file=sys.stderr)
