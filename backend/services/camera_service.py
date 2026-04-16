@@ -617,18 +617,20 @@ class CameraService:
         self, image_bytes: bytes, metadata: dict
     ) -> dict:
         """
-        Register a new person with face embedding extracted from an uploaded image.
+        Register a new person from an uploaded image.
 
-        Steps:
-          1. Decode image bytes → OpenCV frame
-          2. Run InsightFace to detect face(s)
-          3. If exactly 1 face detected → extract normed_embedding
-          4. Save to CSV + MongoDB via csv_db
+        On Render free tier (512 MB RAM), InsightFace cannot be loaded alongside
+        YOLO without OOM. So face embedding is skipped by default and the person
+        is saved to CSV with embed=None.
 
-        Returns {"success": True, "person_id": N} on success.
+        If env FACE_EMBED_ENABLED=true AND InsightFace is available, embedding
+        is generated and saved. Otherwise registration still succeeds — the
+        person will appear in the person list and YOLO will draw a bounding box
+        labeled 'Người - Chưa XĐ'. Face-match recognition is skipped until
+        an embedding is available.
         """
         try:
-            # Decode image
+            # 1) Decode image
             np_arr = np.frombuffer(image_bytes, np.uint8)
             image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             if image is None:
@@ -637,44 +639,48 @@ class CameraService:
                     "error": "Không thể đọc ảnh. Vui lòng thử file khác (JPEG/PNG).",
                 }
 
-            # Get face embedding via InsightFace
-            face_app = self._get_face_app()
-            if face_app is None:
-                return {
-                    "success": False,
-                    "error": (
-                        "Face recognition chưa khả dụng trên server này. "
-                        "Kiểm tra InsightFace đã được cài đặt chưa."
-                    ),
-                }
+            # 2) Try face embedding only if explicitly enabled AND InsightFace available
+            embedding = None
+            embed_note = ""
 
-            faces = face_app.get(image)
+            if settings.face_embed_enabled:
+                try:
+                    face_app = self._get_face_app()
+                    if face_app is not None:
+                        faces = face_app.get(image)
+                        if not faces:
+                            return {
+                                "success": False,
+                                "error": (
+                                    "Không phát hiện khuôn mặt trong ảnh. "
+                                    "Vui lòng đảm bảo: ảnh rõ mặt, đủ sáng, nhìn thẳng."
+                                ),
+                            }
+                        if len(faces) > 1:
+                            return {
+                                "success": False,
+                                "error": (
+                                    f"Phát hiện {len(faces)} khuôn mặt. "
+                                    "Vui lòng chụp ảnh chỉ có 1 người."
+                                ),
+                            }
+                        embedding = faces[0].normed_embedding
+                        embed_note = " (có face embedding)"
+                    else:
+                        embed_note = " (InsightFace chưa sẵn sàng — bỏ qua embedding)"
+                except MemoryError:
+                    self.logger.warning("[Register] InsightFace OOM — saving without embedding")
+                    embed_note = " (hết RAM — đăng ký không có embedding)"
+                except Exception as ex:
+                    self.logger.warning(f"[Register] InsightFace failed: {ex} — saving without embedding")
+                    embed_note = " (InsightFace lỗi — đăng ký không có embedding)"
+            else:
+                embed_note = " (FACE_EMBED_ENABLED=false — chì luưu thông tin)"
 
-            if not faces:
-                return {
-                    "success": False,
-                    "error": (
-                        "Không phát hiện khuôn mặt trong ảnh. "
-                        "Vui lòng đảm bảo: ảnh rõ mặt, đủ sáng, nhìn thẳng vào camera."
-                    ),
-                }
-
-            if len(faces) > 1:
-                return {
-                    "success": False,
-                    "error": (
-                        f"Phát hiện {len(faces)} khuôn mặt trong ảnh. "
-                        "Vui lòng chụp ảnh chỉ có 1 người."
-                    ),
-                }
-
-            embedding: np.ndarray = faces[0].normed_embedding  # shape (512,)
-
-            # Save to CSV + MongoDB
+            # 3) Save to CSV (embed may be None)
             self._apply_csv_config()
-
             person_id = csv_db.them_nhan_su_csv(
-                person_id=None,  # auto-assign
+                person_id=None,
                 ho_ten=(metadata.get("ho_ten") or "").strip(),
                 ma_nv=(metadata.get("ma_nv") or "").strip(),
                 bo_phan=(metadata.get("bo_phan") or "").strip(),
@@ -689,13 +695,12 @@ class CameraService:
                 }
 
             name = (metadata.get("ho_ten") or "").strip()
-            self.logger.info(
-                f"[Register] person_id={person_id}, name={name!r}"
-            )
+            self.logger.info(f"[Register] person_id={person_id}, name={name!r}{embed_note}")
             return {
                 "success": True,
-                "message": f"Đã đăng ký thành công: {name} (ID: {person_id})",
+                "message": f"Đã đăng ký thành công: {name} (ID: {person_id}){embed_note}",
                 "person_id": person_id,
+                "has_embedding": embedding is not None,
             }
 
         except Exception as ex:

@@ -64,6 +64,11 @@ class Settings:
     preview_enabled: bool = _to_bool(os.getenv("PREVIEW_ENABLED", "false"), False)
     # Web browser webcam detection (subset of vision_enabled)
     web_detect_enabled: bool = _to_bool(os.getenv("WEB_DETECT_ENABLED", "true"), True)
+    # Face embedding via InsightFace during personnel registration.
+    # DEFAULT FALSE on Render free (512 MB): InsightFace buffalo model (~400 MB)
+    # + YOLO (~200 MB) exceeds the 512 MB limit and causes OOM SIGKILL.
+    # Set FACE_EMBED_ENABLED=true only if you have >1 GB RAM (paid plan).
+    face_embed_enabled: bool = _to_bool(os.getenv("FACE_EMBED_ENABLED", "false"), False)
 
     # ===== Chatbot — Architecture: OpenRouter only =====
     # Rationale: the system uses OpenRouter cloud API for inference.

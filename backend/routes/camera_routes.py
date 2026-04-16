@@ -195,9 +195,11 @@ def camera_sim_dec():
 #   - DELETE /api/personnel/delete → admin only
 
 
-@camera_bp.route("/api/personnel/list", methods=["GET"])
+@camera_bp.route("/api/personnel/list", methods=["GET", "OPTIONS"])
 def personnel_list():
     """Return all registered persons (no embedding data)."""
+    if request.method == "OPTIONS":
+        return "", 204
     persons = _svc.list_persons()
     return jsonify({"success": True, "count": len(persons), "persons": persons})
 
