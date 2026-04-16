@@ -3,10 +3,12 @@ import { io } from 'socket.io-client';
 import { API_BASE, getAuthHeaders, getStoredToken, SOCKET_URL } from '../../authStorage';
 import './CameraPanel.scss';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
 const ROTATE_SEQUENCE = ['none', '90deg', '180deg', '270deg'];
 const INFERENCE_INTERVAL_MS = 350;
-const MAX_UPLOAD_WIDTH = 960;
+const MAX_UPLOAD_WIDTH = 960; // Max width of frame sent to backend
 
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
 const normalizeRotate = (value) => {
   if (!value || value === 'none') return 'none';
   if (value === 90 || value === '90' || value === '90deg' || value === 'right') return '90deg';
@@ -17,8 +19,8 @@ const normalizeRotate = (value) => {
 
 const getNextRotate = (current) => {
   const normalized = normalizeRotate(current);
-  const currentIndex = ROTATE_SEQUENCE.indexOf(normalized);
-  return ROTATE_SEQUENCE[(currentIndex + 1) % ROTATE_SEQUENCE.length];
+  const idx = ROTATE_SEQUENCE.indexOf(normalized);
+  return ROTATE_SEQUENCE[(idx + 1) % ROTATE_SEQUENCE.length];
 };
 
 const classColor = (className = '') => {
@@ -29,7 +31,9 @@ const classColor = (className = '') => {
   return '#ff6f91';
 };
 
+// ─── Component ────────────────────────────────────────────────────────────────
 function CameraPanel() {
+  // Camera & backend state
   const [cameraStatus, setCameraStatus] = useState({
     running: false,
     paused: false,
@@ -50,23 +54,11 @@ function CameraPanel() {
   const [backendOnline, setBackendOnline] = useState(false);
   const [busyAction, setBusyAction] = useState('');
   const [toast, setToast] = useState(null);
-
   const [previewAvailable, setPreviewAvailable] = useState(false);
   const [userCameraActive, setUserCameraActive] = useState(false);
   const [snapshotImage, setSnapshotImage] = useState(null);
-  const [controlModal, setControlModal] = useState({
-    open: false,
-    type: null,
-    title: '',
-    submitLabel: '',
-    payload: {},
-  });
 
-  const [logDrawerOpen, setLogDrawerOpen] = useState(false);
-  const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
-
-  const [logs, setLogs] = useState([]);
-  const [events, setEvents] = useState([]);
+  // Inference stats (updated after each successful detect)
   const [inferStats, setInferStats] = useState({
     inference_ms: 0,
     detected_count: 0,
@@ -74,28 +66,50 @@ function CameraPanel() {
     detected_classes: [],
   });
 
+  // Logs, events, terminal
+  const [logs, setLogs] = useState([]);
+  const [events, setEvents] = useState([]);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalLines, setTerminalLines] = useState([
     'SmartElevator Camera Terminal',
-    'Gõ lệnh hoặc dùng các nút nhanh.',
-    'Ví dụ: help, reload, register, edit, delete, mirror, rotate, yolo 1, sim +',
+    'Gõ lệnh hoặc dùng nút nhanh.',
+    'Ví dụ: help, reload, mirror, rotate, yolo 1, sim +',
   ]);
 
+  // Drawer state
+  const [logDrawerOpen, setLogDrawerOpen] = useState(false);
+  const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
+
+  // Personnel management
+  const [persons, setPersons] = useState([]);
+  const [controlModal, setControlModal] = useState({
+    open: false,
+    type: null,   // 'register' | 'edit' | 'delete'
+    title: '',
+    submitLabel: '',
+    payload: {},
+  });
+  const [modalImage, setModalImage] = useState(null);         // File blob
+  const [modalImagePreview, setModalImagePreview] = useState(null); // ObjectURL
+
+  // Refs
   const socketRef = useRef(null);
   const statusIntervalRef = useRef(null);
   const inferenceTimerRef = useRef(null);
   const snapshotTimeoutRef = useRef(null);
-
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
   const captureCanvasRef = useRef(null);
   const streamRef = useRef(null);
 
+  // Mutable flags (no re-render needed)
   const isUserWebcamRef = useRef(false);
   const pausedRef = useRef(false);
   const inferenceInFlightRef = useRef(false);
   const latestInferenceRef = useRef(null);
   const lastDetectionCountRef = useRef(-1);
+
+  // ─── Polling helpers ────────────────────────────────────────────────────────
 
   const clearPolling = useCallback(() => {
     if (statusIntervalRef.current) {
@@ -111,15 +125,12 @@ function CameraPanel() {
     }
   }, []);
 
+  // ─── Log / terminal helpers ─────────────────────────────────────────────────
+
   const pushLog = useCallback((module, level, message) => {
     setLogs((prev) =>
       [
-        {
-          id: `${Date.now()}_${Math.random()}`,
-          module,
-          level,
-          message,
-        },
+        { id: `${Date.now()}_${Math.random()}`, module, level, message },
         ...prev,
       ].slice(0, 120)
     );
@@ -133,22 +144,17 @@ function CameraPanel() {
     setToast({ type, message });
   }, []);
 
+  // ─── Detection overlay ──────────────────────────────────────────────────────
+
   const resetInferencePreview = useCallback(() => {
     latestInferenceRef.current = null;
     lastDetectionCountRef.current = -1;
-    setInferStats({
-      inference_ms: 0,
-      detected_count: 0,
-      people_count: 0,
-      detected_classes: [],
-    });
+    setInferStats({ inference_ms: 0, detected_count: 0, people_count: 0, detected_classes: [] });
 
     const canvas = overlayCanvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
-      }
+      if (ctx) ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
     }
   }, []);
 
@@ -157,13 +163,16 @@ function CameraPanel() {
     const video = videoRef.current;
     const result = latestInferenceRef.current;
 
-    if (!canvas || !video || !video.videoWidth || !video.videoHeight) {
-      return;
-    }
+    if (!canvas || !video) return;
 
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+    // Wait until video has actual dimensions
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return;
+
+    if (canvas.width !== vw || canvas.height !== vh) {
+      canvas.width = vw;
+      canvas.height = vh;
     }
 
     const ctx = canvas.getContext('2d');
@@ -171,14 +180,15 @@ function CameraPanel() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (!result?.detections?.length) {
-      return;
-    }
+    if (!result?.detections?.length) return;
 
-    const baseWidth = Math.max(result.image_width || video.videoWidth, 1);
-    const baseHeight = Math.max(result.image_height || video.videoHeight, 1);
-    const scaleX = video.videoWidth / baseWidth;
-    const scaleY = video.videoHeight / baseHeight;
+    // image_width / image_height = dimensions of the frame that backend inferenced.
+    // The backend resizes incoming frames to max 640px before inference, so boxes
+    // are in that coordinate space. We scale back to video display dimensions here.
+    const baseWidth = Math.max(result.image_width || vw, 1);
+    const baseHeight = Math.max(result.image_height || vh, 1);
+    const scaleX = vw / baseWidth;
+    const scaleY = vh / baseHeight;
 
     result.detections.forEach((det) => {
       const [x1, y1, x2, y2] = det.xyxy || [0, 0, 0, 0];
@@ -189,52 +199,212 @@ function CameraPanel() {
       const color = classColor(det.class_name);
       const label = det.label || det.class_name || 'object';
 
+      // Bounding box
       ctx.strokeStyle = color;
       ctx.lineWidth = Math.max(2, Math.round(canvas.width / 420));
       ctx.strokeRect(left, top, width, height);
 
+      // Label background
       const fontSize = Math.max(12, Math.round(canvas.width / 52));
       ctx.font = `600 ${fontSize}px Inter, Arial, sans-serif`;
       const labelWidth = ctx.measureText(label).width + 14;
       const labelHeight = fontSize + 10;
-      const labelTop = Math.max(0, top - labelHeight - 6);
+      const labelTop = Math.max(0, top - labelHeight - 4);
 
-      ctx.fillStyle = 'rgba(4, 18, 33, 0.84)';
+      ctx.fillStyle = 'rgba(4, 18, 33, 0.88)';
       ctx.fillRect(left, labelTop, labelWidth, labelHeight);
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(left, labelTop, labelWidth, labelHeight);
 
-      ctx.fillStyle = '#eaf6ff';
+      // Label text
+      ctx.fillStyle = det.class_name === 'person' ? '#24ff9a' : '#eaf6ff';
       ctx.fillText(label, left + 7, labelTop + fontSize + 1);
     });
   }, []);
 
-  const openControlModal = useCallback((type) => {
-    const modalConfig = {
-      register: {
-        title: 'Đăng ký nhân viên',
-        submitLabel: 'Xác nhận đăng ký',
-      },
-      edit: {
-        title: 'Sửa thông tin nhân viên',
-        submitLabel: 'Xác nhận sửa',
-      },
-      delete: {
-        title: 'Xóa nhân viên',
-        submitLabel: 'Xác nhận xóa',
-      },
-    };
+  // ─── Personnel helpers ──────────────────────────────────────────────────────
 
-    setControlModal({
-      open: true,
-      type,
-      title: modalConfig[type]?.title || 'Thao tác camera',
-      submitLabel: modalConfig[type]?.submitLabel || 'Xác nhận',
-      payload: {},
-    });
-    setTerminalDrawerOpen(false);
+  const fetchPersonsList = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/personnel/list`, {
+        headers: getAuthHeaders(false),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.persons)) {
+        setPersons(data.persons);
+      }
+    } catch {
+      // Silently ignore — non-critical
+    }
   }, []);
+
+  const openControlModal = useCallback(
+    (type) => {
+      const titleMap = {
+        register: 'Đăng ký nhân viên',
+        edit: 'Sửa thông tin nhân viên',
+        delete: 'Xóa nhân viên',
+      };
+      const labelMap = {
+        register: 'Xác nhận đăng ký',
+        edit: 'Lưu thay đổi',
+        delete: 'Xác nhận xóa',
+      };
+
+      // Refresh persons list when opening edit/delete so dropdowns are current
+      if (type === 'edit' || type === 'delete') {
+        fetchPersonsList();
+      }
+
+      setModalImage(null);
+      setModalImagePreview(null);
+      setControlModal({
+        open: true,
+        type,
+        title: titleMap[type] || 'Thao tác',
+        submitLabel: labelMap[type] || 'Xác nhận',
+        payload: {},
+      });
+      setTerminalDrawerOpen(false);
+    },
+    [fetchPersonsList]
+  );
+
+  const closeModal = useCallback(() => {
+    setControlModal({ open: false, type: null, title: '', submitLabel: '', payload: {} });
+    if (modalImagePreview) URL.revokeObjectURL(modalImagePreview);
+    setModalImage(null);
+    setModalImagePreview(null);
+  }, [modalImagePreview]);
+
+  const captureRegistrationPhoto = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      showToast('error', 'Camera chưa sẵn sàng để chụp ảnh');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          showToast('error', 'Không thể chụp ảnh từ camera');
+          return;
+        }
+        if (modalImagePreview) URL.revokeObjectURL(modalImagePreview);
+        setModalImage(blob);
+        setModalImagePreview(URL.createObjectURL(blob));
+        showToast('success', 'Đã chụp ảnh khuôn mặt');
+      },
+      'image/jpeg',
+      0.92
+    );
+  }, [modalImagePreview, showToast]);
+
+  const handleModalImageFile = useCallback(
+    (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (modalImagePreview) URL.revokeObjectURL(modalImagePreview);
+      setModalImage(file);
+      setModalImagePreview(URL.createObjectURL(file));
+    },
+    [modalImagePreview]
+  );
+
+  /**
+   * Submit personnel action (register / edit / delete) via REST API.
+   * This replaces the old handleCommand() approach that only sent the
+   * action to /api/camera/command without backend implementation.
+   */
+  const handlePersonnelAction = useCallback(
+    async (type, payload, imageBlob) => {
+      if (busyAction) return;
+      setBusyAction(type);
+
+      try {
+        let result;
+
+        if (type === 'register') {
+          if (!imageBlob) {
+            showToast('error', 'Vui lòng chọn hoặc chụp ảnh khuôn mặt trước');
+            return;
+          }
+          if (!payload.ho_ten) {
+            showToast('error', 'Vui lòng nhập họ tên');
+            return;
+          }
+
+          const formData = new FormData();
+          formData.append('image', imageBlob, 'face.jpg');
+          formData.append('ho_ten', payload.ho_ten || '');
+          formData.append('ma_nv', payload.ma_nv || '');
+          formData.append('bo_phan', payload.bo_phan || '');
+          formData.append('ngay_sinh', payload.ngay_sinh || '');
+
+          // Do NOT set Content-Type; browser sets it with correct boundary
+          const res = await fetch(`${API_BASE}/api/personnel/register`, {
+            method: 'POST',
+            headers: getAuthHeaders(false),
+            body: formData,
+          });
+          result = await res.json();
+
+        } else if (type === 'edit') {
+          if (!payload.person_id) {
+            showToast('error', 'Vui lòng chọn nhân viên cần sửa');
+            return;
+          }
+          const res = await fetch(`${API_BASE}/api/personnel/edit`, {
+            method: 'PUT',
+            headers: getAuthHeaders(true),
+            body: JSON.stringify(payload),
+          });
+          result = await res.json();
+
+        } else if (type === 'delete') {
+          if (!payload.person_id) {
+            showToast('error', 'Vui lòng chọn nhân viên cần xóa');
+            return;
+          }
+          if (!window.confirm(`Xác nhận xóa person_id=${payload.person_id}?`)) return;
+          const res = await fetch(`${API_BASE}/api/personnel/delete`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(true),
+            body: JSON.stringify({ person_id: Number(payload.person_id) }),
+          });
+          result = await res.json();
+        }
+
+        if (result?.success) {
+          showToast('success', result.message || 'Thành công');
+          pushLog('camera', 'INFO', `Personnel ${type}: ${result.message || 'OK'}`);
+          pushTerminal(`> personnel ${type} -> OK: ${result.message || ''}`);
+          fetchPersonsList();
+          closeModal();
+        } else {
+          const errMsg = result?.error || result?.message || 'Thao tác thất bại';
+          showToast('error', errMsg);
+          pushLog('camera', 'ERROR', `Personnel ${type}: ${errMsg}`);
+          pushTerminal(`> personnel ${type} -> ERROR: ${errMsg}`);
+        }
+      } catch (err) {
+        showToast('error', `Lỗi kết nối: ${err.message}`);
+        pushLog('camera', 'ERROR', `Personnel ${type}: ${err.message}`);
+      } finally {
+        setBusyAction('');
+      }
+    },
+    [busyAction, closeModal, fetchPersonsList, pushLog, pushTerminal, showToast]
+  );
+
+  // ─── Data fetching ───────────────────────────────────────────────────────────
 
   const fetchHealth = useCallback(async () => {
     try {
@@ -258,7 +428,6 @@ function CameraPanel() {
       if (data.success && data.status) {
         setCameraStatus((prev) => {
           const remote = data.status;
-
           if (isUserWebcamRef.current) {
             return {
               ...prev,
@@ -268,11 +437,8 @@ function CameraPanel() {
               note: prev.note || remote.note || 'User camera active',
             };
           }
-
           const next = { ...prev, ...remote };
-          if (!next.running) {
-            setPreviewAvailable(false);
-          }
+          if (!next.running) setPreviewAvailable(false);
           return next;
         });
       }
@@ -287,7 +453,6 @@ function CameraPanel() {
         headers: getAuthHeaders(false),
       });
       const data = await res.json();
-
       if (data.success && Array.isArray(data.items)) {
         const mapped = data.items
           .slice()
@@ -299,7 +464,6 @@ function CameraPanel() {
             message: item.message,
           }))
           .reverse();
-
         setLogs(mapped);
       }
     } catch {
@@ -307,12 +471,11 @@ function CameraPanel() {
     }
   }, [pushLog]);
 
+  // ─── Polling / Socket setup ──────────────────────────────────────────────────
+
   const startPolling = useCallback(() => {
     clearPolling();
-
-    statusIntervalRef.current = setInterval(() => {
-      fetchCameraStatus();
-    }, 1000);
+    statusIntervalRef.current = setInterval(() => fetchCameraStatus(), 1000);
   }, [clearPolling, fetchCameraStatus]);
 
   const setupSocket = useCallback(() => {
@@ -320,6 +483,7 @@ function CameraPanel() {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
       auth: { token: getStoredToken() || '' },
     });
 
@@ -336,28 +500,21 @@ function CameraPanel() {
     socket.on('camera_status', (payload) => {
       setCameraStatus((prev) => {
         const next = { ...prev, ...payload };
-
         if (next.running) {
           startPolling();
         } else if (!isUserWebcamRef.current) {
           clearPolling();
           setPreviewAvailable(false);
         }
-
         return next;
       });
     });
 
     socket.on('camera_event', (payload) => {
       setEvents((prev) => [payload, ...prev].slice(0, 30));
-
       if (payload?.event_type) {
-        setCameraStatus((prev) => ({
-          ...prev,
-          last_event: payload.event_type,
-        }));
+        setCameraStatus((prev) => ({ ...prev, last_event: payload.event_type }));
       }
-
       pushLog('camera', 'EVENT', JSON.stringify(payload));
     });
 
@@ -372,9 +529,16 @@ function CameraPanel() {
   }, [clearPolling, pushLog, startPolling]);
 
   const initModule = useCallback(async () => {
-    await Promise.allSettled([fetchHealth(), fetchCameraStatus(), fetchRecentLogs()]);
+    await Promise.allSettled([
+      fetchHealth(),
+      fetchCameraStatus(),
+      fetchRecentLogs(),
+      fetchPersonsList(),
+    ]);
     setupSocket();
-  }, [fetchCameraStatus, fetchHealth, fetchRecentLogs, setupSocket]);
+  }, [fetchCameraStatus, fetchHealth, fetchRecentLogs, fetchPersonsList, setupSocket]);
+
+  // ─── Effects ─────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     initModule();
@@ -383,19 +547,14 @@ function CameraPanel() {
       clearPolling();
       clearInferenceLoop();
 
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
+      if (socketRef.current) socketRef.current.disconnect();
 
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
       }
 
-      if (snapshotTimeoutRef.current) {
-        clearTimeout(snapshotTimeoutRef.current);
-        snapshotTimeoutRef.current = null;
-      }
+      if (snapshotTimeoutRef.current) clearTimeout(snapshotTimeoutRef.current);
 
       inferenceInFlightRef.current = false;
       isUserWebcamRef.current = false;
@@ -406,7 +565,7 @@ function CameraPanel() {
 
   useEffect(() => {
     if (!toast) return undefined;
-    const t = setTimeout(() => setToast(null), 2500);
+    const t = setTimeout(() => setToast(null), 2800);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -416,21 +575,13 @@ function CameraPanel() {
 
   useEffect(() => {
     if (!snapshotImage) return undefined;
-
-    if (snapshotTimeoutRef.current) {
-      clearTimeout(snapshotTimeoutRef.current);
-    }
-
+    if (snapshotTimeoutRef.current) clearTimeout(snapshotTimeoutRef.current);
     snapshotTimeoutRef.current = setTimeout(() => {
       setSnapshotImage(null);
       snapshotTimeoutRef.current = null;
     }, 5000);
-
     return () => {
-      if (snapshotTimeoutRef.current) {
-        clearTimeout(snapshotTimeoutRef.current);
-        snapshotTimeoutRef.current = null;
-      }
+      if (snapshotTimeoutRef.current) clearTimeout(snapshotTimeoutRef.current);
     };
   }, [snapshotImage]);
 
@@ -442,6 +593,14 @@ function CameraPanel() {
     }
   }, [cameraStatus.running, startPolling, clearPolling]);
 
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (modalImagePreview) URL.revokeObjectURL(modalImagePreview);
+    };
+  }, [modalImagePreview]);
+
+  // Attach video stream when userCameraActive becomes true
   useEffect(() => {
     if (!userCameraActive) return undefined;
 
@@ -450,17 +609,13 @@ function CameraPanel() {
 
     let cancelled = false;
     let rafAttempts = 0;
-    const maxRaf = 30;
 
     const attach = () => {
       if (cancelled) return;
-
       const el = videoRef.current;
       if (!el) {
         rafAttempts += 1;
-        if (rafAttempts < maxRaf) {
-          requestAnimationFrame(attach);
-        }
+        if (rafAttempts < 30) requestAnimationFrame(attach);
         return;
       }
 
@@ -471,20 +626,28 @@ function CameraPanel() {
 
       const onMeta = () => {
         el.play().catch(() => {});
-        setPreviewAvailable(true);
-        drawDetectionOverlay();
+        // Use readyState to confirm frame data is available
+        const checkReady = () => {
+          if (el.readyState >= 2 && el.videoWidth > 0) {
+            setPreviewAvailable(true);
+            drawDetectionOverlay();
+          } else {
+            setTimeout(checkReady, 100);
+          }
+        };
+        checkReady();
       };
 
       el.addEventListener('loadedmetadata', onMeta, { once: true });
+      el.addEventListener('playing', () => setPreviewAvailable(true), { once: true });
       el.play().catch(() => {});
     };
 
     requestAnimationFrame(attach);
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [userCameraActive, drawDetectionOverlay]);
+
+  // ─── User webcam control ─────────────────────────────────────────────────────
 
   const startUserCamera = useCallback(async () => {
     try {
@@ -495,19 +658,12 @@ function CameraPanel() {
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false,
         });
       } catch {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false,
         });
       }
@@ -535,7 +691,7 @@ function CameraPanel() {
       setPreviewAvailable(false);
       resetInferencePreview();
       pushLog('camera', 'ERROR', `Cannot access user camera: ${error.message}`);
-      showToast('error', 'Không thể truy cập camera người dùng');
+      showToast('error', `Không thể mở camera: ${error.message}`);
     }
   }, [pushLog, resetInferencePreview, showToast]);
 
@@ -545,13 +701,11 @@ function CameraPanel() {
     inferenceInFlightRef.current = false;
 
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
 
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    if (videoRef.current) videoRef.current.srcObject = null;
 
     setUserCameraActive(false);
     setPreviewAvailable(false);
@@ -568,19 +722,20 @@ function CameraPanel() {
     pushLog('camera', 'INFO', 'User camera stopped');
   }, [clearInferenceLoop, pushLog, resetInferencePreview]);
 
+  // ─── Realtime inference loop ──────────────────────────────────────────────────
+
   const captureAndInfer = useCallback(async () => {
     if (inferenceInFlightRef.current) return;
     if (!isUserWebcamRef.current || pausedRef.current) return;
 
     const video = videoRef.current;
     const captureCanvas = captureCanvasRef.current;
-    if (!video || !captureCanvas || !video.videoWidth || !video.videoHeight) {
-      return;
-    }
+    if (!video || !captureCanvas || !video.videoWidth || !video.videoHeight) return;
 
     inferenceInFlightRef.current = true;
 
     try {
+      // Resize frame client-side before upload to reduce bandwidth
       const ratio = Math.min(1, MAX_UPLOAD_WIDTH / video.videoWidth);
       const uploadWidth = Math.max(1, Math.round(video.videoWidth * ratio));
       const uploadHeight = Math.max(1, Math.round(video.videoHeight * ratio));
@@ -597,9 +752,7 @@ function CameraPanel() {
         captureCanvas.toBlob(resolve, 'image/jpeg', 0.76);
       });
 
-      if (!blob) {
-        throw new Error('Không tạo được ảnh frame để detect');
-      }
+      if (!blob) throw new Error('Không tạo được frame JPEG');
 
       const formData = new FormData();
       formData.append('frame', blob, 'frame.jpg');
@@ -613,6 +766,8 @@ function CameraPanel() {
       const data = await res.json();
 
       if (!data.success) {
+        // Backend 'busy' is a soft error — skip silently and retry next tick
+        if (data.error?.includes('busy')) return;
         throw new Error(data.error || 'Inference failed');
       }
 
@@ -634,23 +789,21 @@ function CameraPanel() {
             : 'AI detect realtime • no object',
       }));
 
+      // Only push terminal line when detection count changes (avoid spam)
       if (lastDetectionCountRef.current !== data.detected_count) {
         lastDetectionCountRef.current = data.detected_count;
         pushTerminal(
-          `detect -> ${data.detected_count} objects | person ${data.people_count || 0} | ${Number(
-            data.inference_ms || 0
-          ).toFixed(0)} ms`
+          `detect -> ${data.detected_count} objects | person ${data.people_count || 0} | ${Number(data.inference_ms || 0).toFixed(0)} ms`
         );
       }
 
       drawDetectionOverlay();
     } catch (error) {
       pushLog('camera', 'ERROR', `Inference error: ${error.message}`);
-      showToast('error', 'Detect realtime gặp lỗi');
     } finally {
       inferenceInFlightRef.current = false;
     }
-  }, [drawDetectionOverlay, pushLog, pushTerminal, showToast]);
+  }, [drawDetectionOverlay, pushLog, pushTerminal]);
 
   useEffect(() => {
     if (!userCameraActive || !previewAvailable || cameraStatus.paused) {
@@ -679,6 +832,8 @@ function CameraPanel() {
     drawDetectionOverlay();
   }, [drawDetectionOverlay, cameraStatus.mirror, cameraStatus.rotate, previewAvailable]);
 
+  // ─── Action helpers ───────────────────────────────────────────────────────────
+
   const postJson = async (url, body = {}) => {
     const res = await fetch(url, {
       method: 'POST',
@@ -690,16 +845,12 @@ function CameraPanel() {
 
   const runAction = async (label, runner, options = {}) => {
     if (busyAction) return;
-
     setBusyAction(label);
-
     try {
       const result = await runner();
 
       if (result?.success) {
-        if (result.state) {
-          setCameraStatus((prev) => ({ ...prev, ...result.state }));
-        }
+        if (result.state) setCameraStatus((prev) => ({ ...prev, ...result.state }));
 
         if (options.afterStop) {
           clearPolling();
@@ -744,13 +895,10 @@ function CameraPanel() {
     }
   };
 
-  const handleStartCamera = async () => {
-    await startUserCamera();
-  };
+  // ─── Button handlers ────────────────────────────────────────────────────────
 
-  const handleStopCamera = async () => {
-    stopUserCamera();
-  };
+  const handleStartCamera = async () => { await startUserCamera(); };
+  const handleStopCamera = () => { stopUserCamera(); };
 
   const handlePauseResume = async () => {
     if (!userCameraActive || !videoRef.current) {
@@ -764,11 +912,7 @@ function CameraPanel() {
 
     if (cameraStatus.paused) {
       await videoRef.current.play().catch(() => {});
-      setCameraStatus((prev) => ({
-        ...prev,
-        paused: false,
-        note: 'Camera resumed',
-      }));
+      setCameraStatus((prev) => ({ ...prev, paused: false, note: 'Camera resumed' }));
       if (previewAvailable) startPolling();
       pushLog('camera', 'INFO', 'User camera resumed');
       showToast('success', 'Camera đã tiếp tục');
@@ -776,11 +920,7 @@ function CameraPanel() {
       videoRef.current.pause();
       clearPolling();
       clearInferenceLoop();
-      setCameraStatus((prev) => ({
-        ...prev,
-        paused: true,
-        note: 'Camera paused',
-      }));
+      setCameraStatus((prev) => ({ ...prev, paused: true, note: 'Camera paused' }));
       pushLog('camera', 'INFO', 'User camera paused');
       showToast('success', 'Camera đã tạm dừng');
     }
@@ -791,15 +931,11 @@ function CameraPanel() {
       showToast('error', 'Camera chưa sẵn sàng để chụp');
       return;
     }
-
     const video = videoRef.current;
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext('2d');
-
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/png');
     setSnapshotImage(dataUrl);
 
@@ -810,16 +946,12 @@ function CameraPanel() {
 
     pushLog('camera', 'INFO', 'Snapshot captured from webcam');
     showToast('success', 'Snapshot đã được chụp');
-
     await postJson(`${API_BASE}/api/camera/snapshot`).catch(() => {});
   };
 
   const handleCommand = async (command, label, payload = {}) => {
     await runAction(label, async () =>
-      postJson(`${API_BASE}/api/camera/command`, {
-        command,
-        payload,
-      })
+      postJson(`${API_BASE}/api/camera/command`, { command, payload })
     );
   };
 
@@ -836,19 +968,14 @@ function CameraPanel() {
   };
 
   const handlePreviewRefresh = useCallback(async () => {
-    if (!isUserWebcamRef.current) {
-      setPreviewAvailable(false);
-    }
-
+    if (!isUserWebcamRef.current) setPreviewAvailable(false);
     await fetchCameraStatus();
-
     if (isUserWebcamRef.current && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
       videoRef.current.play().catch(() => {});
       setPreviewAvailable(true);
       drawDetectionOverlay();
     }
-
     showToast('info', 'Đã refresh stream');
   }, [drawDetectionOverlay, fetchCameraStatus, showToast]);
 
@@ -873,50 +1000,60 @@ function CameraPanel() {
 
   const handleMirror = useCallback(async () => {
     const nextMirror = !cameraStatus.mirror;
-
-    setCameraStatus((prev) => ({
-      ...prev,
-      mirror: nextMirror,
-    }));
-
+    setCameraStatus((prev) => ({ ...prev, mirror: nextMirror }));
     pushLog('camera', 'INFO', `Mirror ${nextMirror ? 'enabled' : 'disabled'}`);
     pushTerminal(`> mirror -> ${nextMirror ? 'ON' : 'OFF'}`);
-    showToast(
-      'success',
-      nextMirror ? 'Đã lật ảnh preview' : 'Đã trả ảnh về bình thường'
-    );
-
-    try {
-      await postJson(`${API_BASE}/api/camera/command`, {
-        command: 'mirror',
-        payload: { mirror: nextMirror },
-      });
-    } catch {
-      // local preview vẫn hoạt động kể cả backend không phản hồi
-    }
+    showToast('success', nextMirror ? 'Đã lật ảnh preview' : 'Đã trả ảnh bình thường');
+    postJson(`${API_BASE}/api/camera/command`, { command: 'mirror', payload: { mirror: nextMirror } })
+      .catch(() => {});
   }, [cameraStatus.mirror, pushLog, pushTerminal, showToast]);
 
   const handleRotate = useCallback(async () => {
     const nextRotate = getNextRotate(cameraStatus.rotate);
-
-    setCameraStatus((prev) => ({
-      ...prev,
-      rotate: nextRotate,
-    }));
-
+    setCameraStatus((prev) => ({ ...prev, rotate: nextRotate }));
     pushLog('camera', 'INFO', `Rotate -> ${nextRotate}`);
     pushTerminal(`> rotate -> ${nextRotate}`);
     showToast('success', `Đã xoay preview: ${nextRotate}`);
-
-    try {
-      await postJson(`${API_BASE}/api/camera/command`, {
-        command: 'rotate',
-        payload: { rotate: nextRotate },
-      });
-    } catch {
-      // local preview vẫn đổi dù backend không phản hồi
-    }
+    postJson(`${API_BASE}/api/camera/command`, { command: 'rotate', payload: { rotate: nextRotate } })
+      .catch(() => {});
   }, [cameraStatus.rotate, pushLog, pushTerminal, showToast]);
+
+  // ─── Terminal ────────────────────────────────────────────────────────────────
+
+  const submitTerminalCommand = async () => {
+    const cmd = terminalInput.trim();
+    if (!cmd || busyAction) return;
+    pushTerminal(`> ${cmd}`);
+    setTerminalInput('');
+    const lower = cmd.toLowerCase();
+
+    if (lower === 'help' || lower === 'menu') return handleMenu();
+    if (lower === 'start') return handleStartCamera();
+    if (lower === 'stop') return handleStopCamera();
+    if (lower === 'pause' || lower === 'resume') return handlePauseResume();
+    if (lower === 'snapshot') return handleSnapshot();
+    if (lower === 'reload') return handleReload();
+    if (lower === 'register') { openControlModal('register'); return; }
+    if (lower === 'edit') { openControlModal('edit'); return; }
+    if (lower === 'delete') { openControlModal('delete'); return; }
+    if (lower === 'mirror') return handleMirror();
+    if (lower === 'rotate') return handleRotate();
+    const yoloMatch = lower.match(/^yolo\s+([123])$/);
+    if (yoloMatch) return handleYolo(Number(yoloMatch[1]));
+    if (lower === 'sim +' || lower === 'sim+') return handleSim('inc');
+    if (lower === 'sim -' || lower === 'sim-') return handleSim('dec');
+
+    pushTerminal(`Không nhận diện được lệnh: ${cmd}`);
+  };
+
+  const onTerminalKeyDown = async (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      await submitTerminalCommand();
+    }
+  };
+
+  // ─── Preview transform ───────────────────────────────────────────────────────
 
   const previewTransform = [
     cameraStatus.mirror ? 'scaleX(-1)' : 'scaleX(1)',
@@ -930,63 +1067,9 @@ function CameraPanel() {
     drawDetectionOverlay();
   };
 
-  const onPreviewError = () => {
-    setPreviewAvailable(false);
-  };
+  const onPreviewError = () => { setPreviewAvailable(false); };
 
-  const submitTerminalCommand = async () => {
-    const cmd = terminalInput.trim();
-    if (!cmd || busyAction) return;
-
-    pushTerminal(`> ${cmd}`);
-    setTerminalInput('');
-
-    const lower = cmd.toLowerCase();
-
-    if (lower === 'help' || lower === 'menu') return handleMenu();
-    if (lower === 'start') return handleStartCamera();
-    if (lower === 'stop') return handleStopCamera();
-    if (lower === 'pause') return handlePauseResume();
-    if (lower === 'resume') return handlePauseResume();
-    if (lower === 'snapshot') return handleSnapshot();
-    if (lower === 'reload') return handleReload();
-
-    if (lower === 'register') {
-      openControlModal('register');
-      pushTerminal('Mở form đăng ký nhân viên.');
-      return;
-    }
-
-    if (lower === 'edit') {
-      openControlModal('edit');
-      pushTerminal('Mở form sửa nhân viên.');
-      return;
-    }
-
-    if (lower === 'delete') {
-      openControlModal('delete');
-      pushTerminal('Mở form xóa nhân viên.');
-      return;
-    }
-
-    if (lower === 'mirror') return handleMirror();
-    if (lower === 'rotate') return handleRotate();
-
-    const yoloMatch = lower.match(/^yolo\s+([123])$/);
-    if (yoloMatch) return handleYolo(Number(yoloMatch[1]));
-
-    if (lower === 'sim +' || lower === 'sim+') return handleSim('inc');
-    if (lower === 'sim -' || lower === 'sim-') return handleSim('dec');
-
-    pushTerminal(`Không nhận diện được lệnh: ${cmd}`);
-  };
-
-  const onTerminalKeyDown = async (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      await submitTerminalCommand();
-    }
-  };
+  // ─── Render helpers ───────────────────────────────────────────────────────────
 
   const renderPreviewContent = () => {
     if (userCameraActive) {
@@ -1033,18 +1116,186 @@ function CameraPanel() {
       <div className="camera-preview-card__placeholder">
         <img src="/logo/Camera1.png" alt="Camera" />
         <h5>Camera chưa chạy</h5>
-        <p>Nhấn "Mở camera" để truy cập camera của bạn và hiển thị detect realtime trong khung này.</p>
+        <p>Nhấn "Mở camera" để truy cập webcam và xem detect realtime.</p>
       </div>
     );
   };
 
+  const renderModalBody = () => {
+    const { type, payload } = controlModal;
+    const setPayload = (updates) =>
+      setControlModal((prev) => ({ ...prev, payload: { ...prev.payload, ...updates } }));
+
+    if (type === 'register') {
+      return (
+        <>
+          {/* Photo capture / upload */}
+          <div className="personnel-photo-section">
+            <div className="personnel-photo-preview">
+              {modalImagePreview ? (
+                <img src={modalImagePreview} alt="Face preview" />
+              ) : (
+                <div className="personnel-photo-placeholder">
+                  <span>Chưa có ảnh khuôn mặt</span>
+                </div>
+              )}
+            </div>
+            <div className="personnel-photo-actions">
+              {userCameraActive && (
+                <button type="button" className="btn-capture" onClick={captureRegistrationPhoto}>
+                  📸 Chụp từ camera
+                </button>
+              )}
+              <label className="btn-upload">
+                📁 Chọn ảnh từ máy
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleModalImageFile}
+                />
+              </label>
+            </div>
+            <small className="personnel-photo-hint">
+              Ảnh cần rõ mặt, nhìn thẳng, đủ sáng. Chỉ 1 người trong khung hình.
+            </small>
+          </div>
+
+          {/* Form fields */}
+          <label>
+            Họ tên <span style={{ color: '#ff6f91' }}>*</span>
+            <input
+              type="text"
+              value={payload.ho_ten || ''}
+              onChange={(e) => setPayload({ ho_ten: e.target.value })}
+              placeholder="Nguyễn Văn A"
+            />
+          </label>
+          <label>
+            Mã nhân viên
+            <input
+              type="text"
+              value={payload.ma_nv || ''}
+              onChange={(e) => setPayload({ ma_nv: e.target.value })}
+              placeholder="NV001"
+            />
+          </label>
+          <label>
+            Phòng ban
+            <input
+              type="text"
+              value={payload.bo_phan || ''}
+              onChange={(e) => setPayload({ bo_phan: e.target.value })}
+              placeholder="Kỹ thuật"
+            />
+          </label>
+          <label>
+            Ngày sinh
+            <input
+              type="date"
+              value={payload.ngay_sinh || ''}
+              onChange={(e) => setPayload({ ngay_sinh: e.target.value })}
+            />
+          </label>
+        </>
+      );
+    }
+
+    if (type === 'edit') {
+      return (
+        <>
+          <label>
+            Chọn nhân viên
+            <select
+              value={payload.person_id || ''}
+              onChange={(e) => setPayload({ person_id: e.target.value })}
+            >
+              <option value="">-- Chọn nhân viên --</option>
+              {persons.map((p) => (
+                <option key={p.person_id} value={p.person_id}>
+                  [{p.person_id}] {p.ho_ten} / {p.ma_nv || 'N/A'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Họ tên mới
+            <input
+              type="text"
+              value={payload.ho_ten || ''}
+              onChange={(e) => setPayload({ ho_ten: e.target.value })}
+              placeholder="Để trống = giữ nguyên"
+            />
+          </label>
+          <label>
+            Mã nhân viên mới
+            <input
+              type="text"
+              value={payload.ma_nv || ''}
+              onChange={(e) => setPayload({ ma_nv: e.target.value })}
+              placeholder="Để trống = giữ nguyên"
+            />
+          </label>
+          <label>
+            Phòng ban mới
+            <input
+              type="text"
+              value={payload.bo_phan || ''}
+              onChange={(e) => setPayload({ bo_phan: e.target.value })}
+              placeholder="Để trống = giữ nguyên"
+            />
+          </label>
+          <label>
+            Ngày sinh mới
+            <input
+              type="date"
+              value={payload.ngay_sinh || ''}
+              onChange={(e) => setPayload({ ngay_sinh: e.target.value })}
+            />
+          </label>
+        </>
+      );
+    }
+
+    if (type === 'delete') {
+      return (
+        <>
+          <p style={{ color: '#ff9090', marginBottom: 8 }}>
+            ⚠ Xóa nhân viên sẽ xóa vĩnh viễn embedding khuôn mặt và tái đánh lại tất cả ID.
+          </p>
+          <label>
+            Chọn nhân viên cần xóa
+            <select
+              value={payload.person_id || ''}
+              onChange={(e) => setPayload({ person_id: e.target.value })}
+            >
+              <option value="">-- Chọn nhân viên --</option>
+              {persons.map((p) => (
+                <option key={p.person_id} value={p.person_id}>
+                  [{p.person_id}] {p.ho_ten} / {p.ma_nv || 'N/A'}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      );
+    }
+
+    return null;
+  };
+
+  // ─── Main JSX ────────────────────────────────────────────────────────────────
+
   return (
     <div className="camera-panel">
+      {/* Hero header */}
       <div className="camera-panel__hero">
         <div className="camera-panel__hero-text">
           <div className="camera-panel__badge">CAMERA AI</div>
           <h3>Giám sát camera AI</h3>
-          <p>Hiển thị camera người dùng, gửi frame lên backend để detect realtime và vẽ box trực tiếp trên video.</p>
+          <p>
+            Mở webcam, gửi frame lên backend để detect realtime và vẽ bounding box trực tiếp.
+          </p>
         </div>
 
         <div className="camera-panel__hero-actions">
@@ -1053,7 +1304,7 @@ function CameraPanel() {
           </button>
 
           <button type="button" onClick={handleStopCamera} disabled={Boolean(busyAction)}>
-            {busyAction === 'Stop camera' ? 'Đang dừng...' : 'Stop'}
+            Stop
           </button>
 
           <button
@@ -1061,11 +1312,7 @@ function CameraPanel() {
             onClick={handlePauseResume}
             disabled={Boolean(busyAction) || !userCameraActive}
           >
-            {busyAction === 'Pause camera' || busyAction === 'Resume camera'
-              ? 'Đang xử lý...'
-              : cameraStatus.paused
-              ? 'Resume'
-              : 'Pause'}
+            {cameraStatus.paused ? 'Resume' : 'Pause'}
           </button>
 
           <button
@@ -1073,17 +1320,18 @@ function CameraPanel() {
             onClick={handleSnapshot}
             disabled={Boolean(busyAction) || !userCameraActive}
           >
-            {busyAction === 'Snapshot' ? 'Đang chụp...' : 'Snapshot'}
+            Snapshot
           </button>
         </div>
       </div>
 
+      {/* Status bar */}
       <div className="camera-panel__status-bar">
         <div className={`camera-chip ${backendOnline ? 'ok' : 'warn'}`}>
           Backend: {backendOnline ? 'Online' : 'Offline'}
         </div>
         <div className={`camera-chip ${userCameraActive ? 'ok' : 'idle'}`}>
-          Local Preview: {userCameraActive ? (cameraStatus.paused ? 'Paused' : 'Live') : 'Stopped'}
+          Camera: {userCameraActive ? (cameraStatus.paused ? 'Paused' : 'Live') : 'Off'}
         </div>
         <div className={`camera-chip ${cameraStatus.paused ? 'warn' : 'ok'}`}>
           Pause: {cameraStatus.paused ? 'Yes' : 'No'}
@@ -1094,11 +1342,15 @@ function CameraPanel() {
         <div className="camera-chip">Sim: {Number(cameraStatus.sim_threshold || 0).toFixed(2)}</div>
         <div className="camera-chip">People: {inferStats.people_count || 0}</div>
         <div className="camera-chip">Detect: {inferStats.detected_count || 0}</div>
-        <div className="camera-chip">Latency: {inferStats.inference_ms ? `${inferStats.inference_ms.toFixed(0)} ms` : '--'}</div>
-        <div className="camera-chip event">Last event: {cameraStatus.last_event || 'None'}</div>
+        <div className="camera-chip">
+          Latency: {inferStats.inference_ms ? `${inferStats.inference_ms.toFixed(0)} ms` : '--'}
+        </div>
+        <div className="camera-chip event">Last: {cameraStatus.last_event || 'None'}</div>
       </div>
 
+      {/* Main content */}
       <div className="camera-panel__single-card">
+        {/* Preview */}
         <div className="camera-preview-card">
           <div className="camera-preview-card__header">
             <div>
@@ -1106,12 +1358,11 @@ function CameraPanel() {
               <span>
                 {userCameraActive
                   ? previewAvailable
-                    ? 'Camera người dùng đang hiển thị và detect realtime trên từng frame.'
-                    : 'Đang kết nối camera người dùng'
+                    ? 'Detect realtime đang chạy — bounding box hiển thị trực tiếp trên video.'
+                    : 'Đang kết nối camera...'
                   : 'Camera chưa chạy'}
               </span>
             </div>
-
             <button
               type="button"
               className="camera-preview-card__refresh"
@@ -1133,79 +1384,26 @@ function CameraPanel() {
           </div>
         </div>
 
+        {/* Controls */}
         <div className="camera-control-card">
           <div className="camera-control-card__title">Điều khiển nhanh</div>
 
           <div className="camera-control-card__grid">
-            <button type="button" onClick={handleMenu} disabled={Boolean(busyAction)}>
-              Menu
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openControlModal('register')}
-              disabled={Boolean(busyAction)}
-            >
-              Đăng ký
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openControlModal('edit')}
-              disabled={Boolean(busyAction)}
-            >
-              Sửa
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openControlModal('delete')}
-              disabled={Boolean(busyAction)}
-            >
-              Xóa
-            </button>
-
-            <button type="button" onClick={handleReload} disabled={Boolean(busyAction)}>
-              Reload
-            </button>
-
-            <button
-              type="button"
-              onClick={handleMirror}
-              disabled={Boolean(busyAction) || !userCameraActive}
-            >
-              Mirror
-            </button>
-
-            <button
-              type="button"
-              onClick={handleRotate}
-              disabled={Boolean(busyAction) || !userCameraActive}
-            >
-              Rotate
-            </button>
-
-            <button type="button" onClick={() => handleYolo(1)} disabled={Boolean(busyAction)}>
-              YOLO 1
-            </button>
-
-            <button type="button" onClick={() => handleYolo(2)} disabled={Boolean(busyAction)}>
-              YOLO 2
-            </button>
-
-            <button type="button" onClick={() => handleYolo(3)} disabled={Boolean(busyAction)}>
-              YOLO 3
-            </button>
-
-            <button type="button" onClick={() => handleSim('inc')} disabled={Boolean(busyAction)}>
-              Sim +
-            </button>
-
-            <button type="button" onClick={() => handleSim('dec')} disabled={Boolean(busyAction)}>
-              Sim -
-            </button>
+            <button type="button" onClick={handleMenu} disabled={Boolean(busyAction)}>Menu</button>
+            <button type="button" onClick={() => openControlModal('register')} disabled={Boolean(busyAction)}>Đăng ký</button>
+            <button type="button" onClick={() => openControlModal('edit')} disabled={Boolean(busyAction)}>Sửa</button>
+            <button type="button" onClick={() => openControlModal('delete')} disabled={Boolean(busyAction)}>Xóa</button>
+            <button type="button" onClick={handleReload} disabled={Boolean(busyAction)}>Reload</button>
+            <button type="button" onClick={handleMirror} disabled={Boolean(busyAction) || !userCameraActive}>Mirror</button>
+            <button type="button" onClick={handleRotate} disabled={Boolean(busyAction) || !userCameraActive}>Rotate</button>
+            <button type="button" onClick={() => handleYolo(1)} disabled={Boolean(busyAction)}>YOLO 1</button>
+            <button type="button" onClick={() => handleYolo(2)} disabled={Boolean(busyAction)}>YOLO 2</button>
+            <button type="button" onClick={() => handleYolo(3)} disabled={Boolean(busyAction)}>YOLO 3</button>
+            <button type="button" onClick={() => handleSim('inc')} disabled={Boolean(busyAction)}>Sim +</button>
+            <button type="button" onClick={() => handleSim('dec')} disabled={Boolean(busyAction)}>Sim -</button>
           </div>
 
+          {/* Realtime events */}
           <div className="camera-control-card__events">
             <div className="camera-control-card__events-title">Realtime events</div>
             <div className="camera-control-card__events-list">
@@ -1225,6 +1423,7 @@ function CameraPanel() {
             </div>
           </div>
 
+          {/* Detection summary */}
           <div className="camera-control-card__events">
             <div className="camera-control-card__events-title">Detect summary</div>
             <div className="camera-control-card__events-list">
@@ -1247,9 +1446,37 @@ function CameraPanel() {
               </div>
             </div>
           </div>
+
+          {/* Personnel list */}
+          {persons.length > 0 && (
+            <div className="camera-control-card__events">
+              <div className="camera-control-card__events-title">
+                Nhân sự đã đăng ký ({persons.length})
+              </div>
+              <div className="camera-control-card__events-list">
+                {persons.slice(0, 5).map((p) => (
+                  <div className="camera-mini-event" key={p.person_id}>
+                    <div className="camera-mini-event__type">ID {p.person_id}</div>
+                    <div className="camera-mini-event__meta">
+                      <span>{p.ho_ten || 'No name'}</span>
+                      <span style={{ color: p.has_embedding ? '#24ff9a' : '#ff9090' }}>
+                        {p.has_embedding ? '✓ Face' : '✗ No face'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {persons.length > 5 && (
+                  <div className="camera-control-card__empty">
+                    ...và {persons.length - 5} người khác
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Floating tools */}
       <div className="camera-floating-tools">
         <button
           type="button"
@@ -1258,7 +1485,6 @@ function CameraPanel() {
         >
           Log
         </button>
-
         <button
           type="button"
           className={`camera-floating-tools__btn ${terminalDrawerOpen ? 'active' : ''}`}
@@ -1268,198 +1494,45 @@ function CameraPanel() {
         </button>
       </div>
 
+      {/* Personnel modal */}
       {controlModal.open && (
         <div className="camera-action-modal-overlay">
           <div className="camera-action-modal">
             <div className="camera-action-modal__header">
               <h4>{controlModal.title}</h4>
-              <button
-                type="button"
-                onClick={() =>
-                  setControlModal({
-                    open: false,
-                    type: null,
-                    title: '',
-                    submitLabel: '',
-                    payload: {},
-                  })
-                }
-              >
-                ×
-              </button>
+              <button type="button" onClick={closeModal}>×</button>
             </div>
 
             <div className="camera-action-modal__body">
-              {controlModal.type === 'register' && (
-                <>
-                  <label>
-                    Mã nhân viên
-                    <input
-                      type="text"
-                      value={controlModal.payload.employee_id || ''}
-                      onChange={(e) =>
-                        setControlModal((prev) => ({
-                          ...prev,
-                          payload: { ...prev.payload, employee_id: e.target.value },
-                        }))
-                      }
-                      placeholder="VD: NV001"
-                    />
-                  </label>
-
-                  <label>
-                    Họ tên
-                    <input
-                      type="text"
-                      value={controlModal.payload.name || ''}
-                      onChange={(e) =>
-                        setControlModal((prev) => ({
-                          ...prev,
-                          payload: { ...prev.payload, name: e.target.value },
-                        }))
-                      }
-                      placeholder="Họ và tên"
-                    />
-                  </label>
-
-                  <label>
-                    Phòng ban
-                    <input
-                      type="text"
-                      value={controlModal.payload.department || ''}
-                      onChange={(e) =>
-                        setControlModal((prev) => ({
-                          ...prev,
-                          payload: { ...prev.payload, department: e.target.value },
-                        }))
-                      }
-                      placeholder="Phòng ban"
-                    />
-                  </label>
-
-                  <label>
-                    Chức vụ
-                    <input
-                      type="text"
-                      value={controlModal.payload.position || ''}
-                      onChange={(e) =>
-                        setControlModal((prev) => ({
-                          ...prev,
-                          payload: { ...prev.payload, position: e.target.value },
-                        }))
-                      }
-                      placeholder="Chức vụ"
-                    />
-                  </label>
-                </>
-              )}
-
-              {controlModal.type === 'edit' && (
-                <>
-                  <label>
-                    Mã nhân viên
-                    <input
-                      type="text"
-                      value={controlModal.payload.employee_id || ''}
-                      onChange={(e) =>
-                        setControlModal((prev) => ({
-                          ...prev,
-                          payload: { ...prev.payload, employee_id: e.target.value },
-                        }))
-                      }
-                      placeholder="Mã nhân viên cần sửa"
-                    />
-                  </label>
-
-                  <label>
-                    Thông tin mới
-                    <input
-                      type="text"
-                      value={controlModal.payload.update || ''}
-                      onChange={(e) =>
-                        setControlModal((prev) => ({
-                          ...prev,
-                          payload: { ...prev.payload, update: e.target.value },
-                        }))
-                      }
-                      placeholder="Tên hoặc bộ phận mới"
-                    />
-                  </label>
-                </>
-              )}
-
-              {controlModal.type === 'delete' && (
-                <>
-                  <p>Nhập mã nhân viên để xác nhận xóa:</p>
-                  <label>
-                    Mã nhân viên
-                    <input
-                      type="text"
-                      value={controlModal.payload.employee_id || ''}
-                      onChange={(e) =>
-                        setControlModal((prev) => ({
-                          ...prev,
-                          payload: { ...prev.payload, employee_id: e.target.value },
-                        }))
-                      }
-                      placeholder="Mã nhân viên"
-                    />
-                  </label>
-                </>
-              )}
+              {renderModalBody()}
             </div>
 
             <div className="camera-action-modal__footer">
+              <button type="button" onClick={closeModal}>Hủy</button>
               <button
                 type="button"
+                disabled={Boolean(busyAction)}
                 onClick={() =>
-                  setControlModal({
-                    open: false,
-                    type: null,
-                    title: '',
-                    submitLabel: '',
-                    payload: {},
-                  })
+                  handlePersonnelAction(
+                    controlModal.type,
+                    controlModal.payload,
+                    modalImage
+                  )
                 }
               >
-                Hủy
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  if (controlModal.type) {
-                    await handleCommand(
-                      controlModal.type,
-                      controlModal.submitLabel,
-                      controlModal.payload
-                    );
-                  }
-
-                  setControlModal({
-                    open: false,
-                    type: null,
-                    title: '',
-                    submitLabel: '',
-                    payload: {},
-                  });
-                }}
-              >
-                {controlModal.submitLabel}
+                {busyAction ? 'Đang xử lý...' : controlModal.submitLabel}
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Log drawer */}
       <div className={`camera-drawer camera-drawer--log ${logDrawerOpen ? 'open' : ''}`}>
         <div className="camera-drawer__header">
           <h5>Log realtime</h5>
-          <button type="button" onClick={() => setLogDrawerOpen(false)}>
-            Đóng
-          </button>
+          <button type="button" onClick={() => setLogDrawerOpen(false)}>Đóng</button>
         </div>
-
         <div className="camera-drawer__body">
           {logs.length === 0 ? (
             <div className="camera-drawer__empty">Chưa có log.</div>
@@ -1477,24 +1550,19 @@ function CameraPanel() {
         </div>
       </div>
 
-      <div
-        className={`camera-drawer camera-drawer--terminal ${terminalDrawerOpen ? 'open' : ''}`}
-      >
+      {/* Terminal drawer */}
+      <div className={`camera-drawer camera-drawer--terminal ${terminalDrawerOpen ? 'open' : ''}`}>
         <div className="camera-drawer__header">
           <h5>Camera Terminal</h5>
-          <button type="button" onClick={() => setTerminalDrawerOpen(false)}>
-            Đóng
-          </button>
+          <button type="button" onClick={() => setTerminalDrawerOpen(false)}>Đóng</button>
         </div>
-
         <div className="camera-terminal__output">
           {terminalLines.map((line, index) => (
-            <div className="camera-terminal__line" key={`${index}_${line}`}>
+            <div className="camera-terminal__line" key={`${index}_${line.slice(0, 20)}`}>
               {line}
             </div>
           ))}
         </div>
-
         <div className="camera-terminal__input-wrap">
           <textarea
             value={terminalInput}
@@ -1513,6 +1581,7 @@ function CameraPanel() {
         </div>
       </div>
 
+      {/* Toast */}
       {toast && <div className={`camera-toast ${toast.type}`}>{toast.message}</div>}
     </div>
   );

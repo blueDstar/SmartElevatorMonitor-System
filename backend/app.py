@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-# import eventlet
-# eventlet.monkey_patch()
+# NOTE: eventlet.monkey_patch() is handled in wsgi.py BEFORE this file is
+# imported. Do NOT call it here — double-patching causes more warnings, not fewer.
+# The only exception is the __main__ block below for local dev.
 
 from flask import Flask
 from flask_cors import CORS
@@ -10,8 +11,8 @@ from config import settings
 from routes import register_blueprints
 from services.socket_service import init_socketio
 from services.log_service import setup_logging
-from services import chat_service, mongo_service
 
+# Setup logging early so all modules that call get_logger() have a handler
 logger = setup_logging(settings.log_level)
 
 app = Flask(__name__)
@@ -34,20 +35,12 @@ CORS(
     supports_credentials=True,
 )
 
+# socketio must be initialized here — wsgi.py imports it
 socketio = init_socketio(app, cors_allowed_origins=_origins)
 register_blueprints(app)
 
-# try:
-#     mongo_service.connect()
-# except Exception as ex:
-#     logger.warning(f"Mongo init failed: {ex}")
 
-# if settings.chatbot_enabled:
-#     try:
-#         chat_service.init_db()
-#     except Exception as ex:
-#         logger.warning(f"Chat service DB init failed: {ex}")
-
+# ─── Socket handlers ──────────────────────────────────────────────────────────
 
 @socketio.on("connect")
 def handle_socket_connect(auth):
@@ -65,9 +58,19 @@ def handle_socket_disconnect():
     logger.info("Socket client disconnected")
 
 
+# ─── Local dev entry point ────────────────────────────────────────────────────
+
 if __name__ == "__main__":
+    # Run locally: python app.py
+    # For production always use: gunicorn --worker-class eventlet -w 1 wsgi:application
+    import eventlet as _ev
+    _ev.monkey_patch()
+
+    from services import camera_service as _cam
+    _ev.spawn_after(4, _cam.camera_service.preload_model)
+
     logger.info(
-        f"SmartElevator backend is running on {settings.flask_host}:{settings.flask_port}"
+        f"SmartElevator backend running on {settings.flask_host}:{settings.flask_port}"
     )
     socketio.run(
         app,
