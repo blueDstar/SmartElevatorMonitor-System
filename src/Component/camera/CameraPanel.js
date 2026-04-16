@@ -949,11 +949,8 @@ function CameraPanel() {
     await postJson(`${API_BASE}/api/camera/snapshot`).catch(() => {});
   };
 
-  const handleCommand = async (command, label, payload = {}) => {
-    await runAction(label, async () =>
-      postJson(`${API_BASE}/api/camera/command`, { command, payload })
-    );
-  };
+  // handleCommand removed — modal actions now use handlePersonnelAction()
+  // which calls /api/personnel/* directly instead of /api/camera/command
 
   const handleYolo = async (value) => {
     await runAction(`YOLO ${value}`, async () =>
