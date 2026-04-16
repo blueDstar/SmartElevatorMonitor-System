@@ -197,7 +197,12 @@ function CameraPanel() {
       const width = Math.max((x2 - x1) * scaleX, 1);
       const height = Math.max((y2 - y1) * scaleY, 1);
       const color = classColor(det.class_name);
-      const label = det.label || det.class_name || 'object';
+      // Show 'Người - Chưa XĐ' for persons (face recognition is server-side only)
+      const displayLabel =
+        det.class_name === 'person'
+          ? `Người - Chưa XĐ ${det.confidence ? `(${(det.confidence * 100).toFixed(0)}%)` : ''}`
+          : det.label || det.class_name || 'object';
+      const label = displayLabel;
 
       // Bounding box
       ctx.strokeStyle = color;
@@ -473,10 +478,21 @@ function CameraPanel() {
 
   // ─── Polling / Socket setup ──────────────────────────────────────────────────
 
+  const pollingActiveRef = useRef(false);
+
   const startPolling = useCallback(() => {
+    // Guard: don't create a new interval if one is already running
+    if (pollingActiveRef.current && statusIntervalRef.current) return;
     clearPolling();
-    statusIntervalRef.current = setInterval(() => fetchCameraStatus(), 1000);
+    pollingActiveRef.current = true;
+    // 3000ms interval — polling is only a fallback, socket handles realtime
+    statusIntervalRef.current = setInterval(() => fetchCameraStatus(), 3000);
   }, [clearPolling, fetchCameraStatus]);
+
+  const stopPolling = useCallback(() => {
+    pollingActiveRef.current = false;
+    clearPolling();
+  }, [clearPolling]);
 
   const setupSocket = useCallback(() => {
     const socket = io(SOCKET_URL, {
@@ -500,10 +516,10 @@ function CameraPanel() {
     socket.on('camera_status', (payload) => {
       setCameraStatus((prev) => {
         const next = { ...prev, ...payload };
-        if (next.running) {
-          startPolling();
-        } else if (!isUserWebcamRef.current) {
-          clearPolling();
+        // DO NOT call startPolling() here — camera_status fires every ~350ms
+        // during inference, which would create and destroy hundreds of intervals.
+        // Polling is managed only via useEffect based on camera running state.
+        if (!next.running && !isUserWebcamRef.current) {
           setPreviewAvailable(false);
         }
         return next;
@@ -589,9 +605,10 @@ function CameraPanel() {
     if (cameraStatus.running || isUserWebcamRef.current) {
       startPolling();
     } else {
-      clearPolling();
+      stopPolling();
     }
-  }, [cameraStatus.running, startPolling, clearPolling]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraStatus.running]); // Intentionally exclude startPolling/stopPolling refs
 
   // Cleanup blob URL on unmount
   useEffect(() => {

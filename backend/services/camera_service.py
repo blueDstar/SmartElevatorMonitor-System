@@ -110,6 +110,12 @@ class CameraService:
         self._infer_busy = False
         self._infer_lock = threading.Lock()
 
+        # Throttle emit_status() to max once per 3s during browser webcam inference.
+        # Without this, every 350ms inference → socket event → React recreates polling
+        # intervals → hundreds of /api/camera/status requests/s → WORKER TIMEOUT.
+        self._last_status_emit_ts = 0.0
+        self._status_emit_interval = 3.0  # seconds
+
         # Model ready flag — set by preload_model() when model finishes loading
         self._model_ready = threading.Event()
 
@@ -363,7 +369,12 @@ class CameraService:
             self.state.note = (
                 f"Browser webcam active — {len(detections)} detections"
             )
-            self.emit_status()
+
+            # Throttle: emit socket status at most once per 3s to avoid flooding
+            # the single eventlet worker and causing WORKER TIMEOUT.
+            if now - self._last_status_emit_ts >= self._status_emit_interval:
+                self._last_status_emit_ts = now
+                self.emit_status()
 
             return {
                 "success": True,
