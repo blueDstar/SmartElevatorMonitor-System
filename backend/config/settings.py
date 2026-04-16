@@ -43,7 +43,7 @@ class Settings:
         os.getenv("JWT_ACCESS_EXP_SECONDS", str(7 * 24 * 3600))
     )
     allow_public_register: bool = _to_bool(
-        os.getenv("ALLOW_PUBLIC_REGISTER", "false"), False
+        os.getenv("ALLOW_PUBLIC_REGISTER", "true"), True
     )
     # Admin seed — set both env vars to auto-create admin account on first startup.
     # This is the ONLY safe way to create an admin. The register endpoint never
