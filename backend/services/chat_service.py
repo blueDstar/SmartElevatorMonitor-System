@@ -21,87 +21,64 @@ class ChatService:
         self._db = None
         self._collection_map: dict[str, str] = {}
         self._conversations: dict[str, list[dict]] = {}
-        self._session_state: dict[str, dict] = {}
 
         self.openrouter_api_key = settings.openrouter_api_key
         self.openrouter_base_url = settings.openrouter_base_url.rstrip("/")
         self.model_name = settings.model_name
 
-        # Giữ nguyên prompt cũ, chỉ bổ sung thêm các ràng buộc để chặn reasoning leak,
-        # ép tiếng Việt, và tránh meta-output.
         self.system_prompt = """Bạn là trợ lý AI cho hệ thống SmartElevator.
 
-Nhiệm vụ:
-- Trả lời câu hỏi của người dùng bằng tiếng Việt tự nhiên, rõ ràng, đúng trọng tâm.
-- Nếu có dữ liệu hệ thống được cung cấp cho lượt hỏi hiện tại, phải ưu tiên dùng dữ liệu đó để trả lời.
-- Nếu không có dữ liệu liên quan, trả lời như một trợ lý AI hữu ích nhưng không được bịa thông tin về hệ thống.
+Bạn là trợ lý AI cho hệ thống SmartElevator.
 
-Quy tắc bắt buộc:
-- Chỉ xuất ra câu trả lời cuối cùng dành cho người dùng.
-- Không được in ra suy nghĩ nội bộ, phân tích trung gian, kế hoạch, tự nhắc nhở, hoặc diễn giải cách bạn đang suy luận.
-- Không được viết các câu như:
-  - "người dùng đang hỏi..."
-  - "tôi sẽ..."
-  - "để tôi kiểm tra..."
-  - "theo hướng dẫn..."
-  - "dựa trên context..."
-  - "Okay, the user is asking..."
-  - "First, I need to..."
-- Không được nhắc đến prompt, context, JSON, dữ liệu đầu vào nội bộ, schema hay quy tắc nội bộ.
-- Không được tự thêm khả năng mà hệ thống chưa được cung cấp dữ liệu để xác nhận.
-- Không được bịa dữ liệu.
+Vai trò của bạn:
+- Hỗ trợ người dùng hỏi đáp tự nhiên bằng tiếng Việt.
+- Khi có dữ liệu hệ thống nội bộ được cung cấp kèm theo, hãy dùng dữ liệu đó để trả lời chính xác.
+- Khi không có dữ liệu hệ thống liên quan, hãy trả lời như một trợ lý AI bình thường, hữu ích, rõ ràng.
 
-Quy tắc ngôn ngữ:
-- Chỉ trả lời bằng tiếng Việt.
-- Không chèn tiếng Anh, tiếng Trung, tiếng Nga, tiếng Hàn, tiếng Nhật hoặc ký tự lạ vào câu trả lời.
-- Ngoại lệ duy nhất:
-  - tên riêng
-  - mã kỹ thuật cố định như FALL, LYING, BOTTLE
-  - mã nhân viên, person_id, cam_id nếu cần giữ nguyên
-- Nếu dữ liệu có thuật ngữ kỹ thuật, hãy ưu tiên diễn đạt lại bằng tiếng Việt dễ hiểu.
+Nguyên tắc quan trọng:
+- Hãy suy nghĩ lâu hơn và kĩ càng hơn khi nhận được lời nhắn của người dùng để dựa vào system promt mà có đầu ra trả lời đúng
+- Tuyệt đối không nhắc đến các tên kỹ thuật hoặc nhãn nội bộ như: CONTEXT_JSON, context, JSON đầu vào, schema, rules, system data, dữ liệu được nhét vào prompt.
+- Tuyệt đối không mô tả quá trình suy luận nội bộ.
+- Không được viết kiểu: "người dùng đang hỏi...", "theo quy tắc...", "dựa trên CONTEXT_JSON...", "tôi được cung cấp dữ liệu rằng...".
+- Chỉ trả lời trực tiếp vào điều người dùng hỏi.
+- Không bịa dữ liệu. Nếu dữ liệu chưa đủ thì nói tự nhiên, ví dụ:
+  - "Hiện tại tôi chưa thấy đủ dữ liệu để kết luận chính xác."
+  - "Tôi chưa thấy bản ghi phù hợp trong hệ thống."
+  - "Dữ liệu hiện có chưa đủ để trả lời chắc chắn câu này."
 
-Cách xử lý câu hỏi:
-1. Đọc kỹ ý chính của người dùng.
-2. Xác định người dùng đang muốn:
-   - tra cứu thông tin
-   - xem danh sách
-   - xem bản ghi mới nhất
-   - đếm số lượng
-   - trình bày lại cho dễ đọc
-   - hỏi chung
-3. Nếu dữ liệu đã đủ, trả lời trực tiếp và đúng ý.
-4. Nếu dữ liệu chưa đủ, nói rõ là chưa đủ dữ liệu để kết luận.
-5. Nếu người dùng hỏi tiếp dựa trên câu trước, hãy giữ đúng ngữ cảnh của cuộc hội thoại.
+Quy tắc bắt buộc về ngôn ngữ:
+- Chỉ được trả lời bằng tiếng Việt tự nhiên.
+- Tuyệt đối không được chèn từ, ký tự, hoặc cụm từ của ngôn ngữ khác.
+- Không được dùng tiếng Trung, tiếng Nga, tiếng Anh, tiếng Hàn, tiếng Nhật trong câu trả lời, trừ:
+  + tên riêng của người,
+  + mã kỹ thuật cố định như FALL, LYING, BOTTLE,
+  + mã nhân viên, person_id, cam_id nếu cần giữ nguyên.
+- Nếu gặp dữ liệu kỹ thuật hoặc nhãn nội bộ bằng tiếng Anh, hãy diễn đạt lại bằng tiếng Việt dễ hiểu nếu có thể.
 
 Cách trả lời:
-- Ngắn gọn nhưng đủ ý.
-- Ưu tiên đúng ý hơn là dài.
-- Không nói lan man.
-- Không lặp lại câu hỏi của người dùng nếu không cần thiết.
-- Không mở đầu bằng các câu xã giao dài dòng khi người dùng đang hỏi dữ liệu.
-- Nếu chỉ có 1 bản ghi, mô tả tự nhiên, rõ ràng.
-- Nếu có nhiều bản ghi, tóm tắt 1 câu trước, rồi liệt kê dễ đọc.
-- Nếu người dùng yêu cầu "dễ đọc hơn", "ngắn gọn hơn", "trình bày lại", "tóm tắt", thì giữ nguyên dữ liệu và chỉ đổi cách diễn đạt.
-- Nếu người dùng yêu cầu xuất JSON thì mới trả JSON hợp lệ.
+- Luôn trả lời bằng tiếng Việt tự nhiên.
+- Ưu tiên cách diễn đạt ngắn gọn, rõ ràng, dễ đọc.
+- Khi người dùng hỏi về danh sách sự kiện hoặc nhân sự, hãy trình bày đẹp, dễ đọc, có thể dùng gạch đầu dòng hoặc bảng nếu phù hợp.
+- Khi người dùng yêu cầu "dễ đọc hơn", "ngắn gọn hơn", "trình bày lại", "tóm tắt", hãy giữ nguyên ý và dữ liệu, chỉ đổi cách diễn đạt cho dễ hiểu hơn.
+- Khi người dùng hỏi thông tin hệ thống, hãy ưu tiên dữ liệu hệ thống đã được cung cấp cho lượt hỏi đó.
+- Nếu người dùng yêu cầu xuất JSON, chỉ khi đó mới trả JSON hợp lệ.
+- Nếu dữ liệu có ngày giờ, hãy trình bày theo cách con người dễ đọc.
+- Hãy viết trọn câu, đầy đủ ý, không bỏ dở giữa chừng.
 
-Chuẩn trả lời theo từng trường hợp:
-- Câu chào / hỏi chung: trả lời ngắn gọn, tự nhiên.
-- Câu hỏi về nhân sự: trả lời đúng theo dữ liệu nhân sự được cung cấp.
-- Câu hỏi về sự kiện: trả lời đúng theo dữ liệu sự kiện được cung cấp.
-- Câu hỏi mơ hồ: hỏi lại ngắn gọn hoặc nói rõ chưa đủ dữ liệu.
-- Không bao giờ tự bịa ra khả năng như theo dõi thời gian thực, thống kê theo tầng, báo cáo tuần, lịch sử bảo trì... nếu lượt hỏi hiện tại không có dữ liệu xác nhận các chức năng đó.
+Khi trả lời dữ liệu hệ thống:
+- Nếu chỉ có 1 bản ghi, hãy trả lời theo văn phong mô tả tự nhiên.
+- Nếu có nhiều bản ghi, hãy ưu tiên:
+  1. một câu tóm tắt ngắn ở đầu,
+  2. sau đó là danh sách hoặc bảng dễ đọc.
+- Nếu người dùng chỉ muốn "xem", "liệt kê", "hiển thị", hãy đi thẳng vào nội dung, không cần mở đầu dài.
+- Không lặp lại những câu xã giao không cần thiết.
+- Không tự chèn các tiêu đề kỹ thuật.
 
-Mục tiêu cuối cùng:
-- Trả lời đúng ý người dùng.
-- Không lộ suy nghĩ nội bộ.
-- Không lẫn tiếng nước ngoài.
-- Không bịa dữ liệu.
-- Luôn dùng tiếng Việt tự nhiên.
+Thông tin dữ liệu hệ thống có thể liên quan:
+- personnels: thông tin nhân sự đã đăng ký, có thể gồm _id, person_id, ho_ten, ma_nv, bo_phan, ngay_sinh, emb_file
+- events: dữ liệu sự kiện hệ thống ghi nhận, có thể gồm _id, cam_id, date, event_type, extra, person_id, person_name, time, timestamp, weekday
 """
 
-    # =========================
-    # DB / SERIALIZE
-    # =========================
     def resolve_collection_name(self, actual_names, preferred_names):
         lower_map = {name.lower(): name for name in actual_names}
         for candidate in preferred_names:
@@ -128,7 +105,7 @@ Mục tiêu cuối cùng:
                 "events": events_name or settings.events_collection,
             }
 
-            self.logger.info("MongoDB connected. Collections=%s", actual_names)
+            self.logger.info(f"MongoDB connected. Collections={actual_names}")
 
     def serialize_value(self, value):
         if isinstance(value, ObjectId):
@@ -155,9 +132,6 @@ Mục tiêu cuối cùng:
             self.logger.info(line)
         self.logger.info("===== END CONTEXT_JSON =====")
 
-    # =========================
-    # TEXT HELPERS
-    # =========================
     def normalize_text(self, text: str) -> str:
         return (text or "").strip().lower()
 
@@ -191,6 +165,7 @@ Mục tiêu cuối cùng:
                     found.append(code)
 
         return found
+
 
     def extract_cam_id(self, msg: str):
         patterns = [
@@ -256,67 +231,6 @@ Mục tiêu cuối cùng:
                 out.append(candidate.strip())
         return out
 
-    # =========================
-    # LIGHTWEIGHT NON-AI HANDLERS
-    # =========================
-    def handle_small_talk_vi(self, user_message: str) -> str | None:
-        msg = self.normalize_text(user_message)
-
-        greetings = ["xin chào", "chào", "hello", "hi"]
-        capability_keywords = [
-            "bạn có thể làm gì",
-            "bạn làm được gì",
-            "giúp gì",
-            "hỗ trợ gì",
-            "có thể làm gì",
-        ]
-        vi_force_keywords = [
-            "trả lời bằng tiếng việt",
-            "bằng tiếng việt đi",
-            "bỏ qua tiếng anh",
-            "trả lời tiếng việt",
-        ]
-
-        if any(k in msg for k in vi_force_keywords):
-            return "Vâng, tôi sẽ trả lời hoàn toàn bằng tiếng Việt. Bạn muốn hỏi gì về hệ thống SmartElevator?"
-
-        if any(g in msg for g in greetings) and any(k in msg for k in capability_keywords):
-            return (
-                "Xin chào! Tôi có thể hỗ trợ bạn tra cứu nhân sự, xem các sự kiện hệ thống, "
-                "thống kê dữ liệu và trình bày lại thông tin theo cách dễ hiểu hơn."
-            )
-
-        if msg in greetings:
-            return "Xin chào! Bạn muốn tôi hỗ trợ gì về hệ thống SmartElevator?"
-
-        if any(k in msg for k in capability_keywords):
-            return (
-                "Tôi có thể giúp bạn tra cứu thông tin nhân sự, xem sự kiện hệ thống, "
-                "thống kê dữ liệu và trình bày lại thông tin theo cách dễ đọc hơn."
-            )
-
-        return None
-
-    def is_reformat_followup(self, msg: str) -> bool:
-        msg_l = self.normalize_text(msg)
-        keywords = [
-            "dễ đọc hơn",
-            "trình bày lại",
-            "viết lại",
-            "tóm tắt",
-            "ngắn gọn hơn",
-            "gọn hơn",
-            "rõ hơn",
-            "liệt kê lại",
-            "hiển thị lại",
-            "format lại",
-            "định dạng lại",
-        ]
-        return any(k in msg_l for k in keywords)
-
-    # =========================
-    # INTENT / CLARIFICATION
-    # =========================
     def detect_intent(self, user_message: str):
         msg = self.normalize_text(user_message)
 
@@ -369,10 +283,7 @@ Mục tiêu cuối cùng:
         ma_nv_list = self.extract_ma_nv(user_message)
 
         if intent == "personnels":
-            broad_words = [
-                "nhân sự", "nhân viên", "ai trong hệ thống",
-                "danh sách nhân sự", "có những ai"
-            ]
+            broad_words = ["nhân sự", "nhân viên", "ai trong hệ thống", "danh sách nhân sự", "có những ai"]
             if any(word in msg for word in broad_words):
                 return None
             if self.extract_person_id(user_message) or ma_nv_list or self.extract_person_name_candidates(user_message):
@@ -400,52 +311,6 @@ Mục tiêu cuối cùng:
 
         return None
 
-    # =========================
-    # CONTEXT NORMALIZATION
-    # =========================
-    def vi_event_type(self, event_type: str) -> str:
-        mapping = {
-            "FALL": "Té ngã",
-            "LYING": "Nằm",
-            "BOTTLE": "Mang chai",
-        }
-        return mapping.get((event_type or "").upper(), event_type or "")
-
-    def vi_weekday(self, weekday: str) -> str:
-        mapping = {
-            "MONDAY": "Thứ Hai",
-            "TUESDAY": "Thứ Ba",
-            "WEDNESDAY": "Thứ Tư",
-            "THURSDAY": "Thứ Năm",
-            "FRIDAY": "Thứ Sáu",
-            "SATURDAY": "Thứ Bảy",
-            "SUNDAY": "Chủ Nhật",
-        }
-        return mapping.get((weekday or "").upper(), weekday or "")
-
-    def normalize_event_for_ai(self, doc: dict) -> dict:
-        d = self.serialize_doc(doc)
-
-        if "event_type" in d:
-            d["event_type_vi"] = self.vi_event_type(d.get("event_type"))
-
-        if "weekday" in d:
-            d["weekday_vi"] = self.vi_weekday(d.get("weekday"))
-
-        extra = d.get("extra")
-        if isinstance(extra, dict):
-            posture = (extra.get("posture") or "").upper()
-
-            if posture in ["TE NGA", "FALL"]:
-                extra["posture_vi"] = "té ngã"
-            elif posture in ["NAM", "LYING"]:
-                extra["posture_vi"] = "nằm"
-
-        return d
-
-    # =========================
-    # MONGO FETCH
-    # =========================
     def get_collection(self, name_key: str):
         self.init_db()
         actual_name = self._collection_map.get(name_key, name_key)
@@ -471,18 +336,12 @@ Mục tiêu cuối cùng:
         if query:
             docs = list(personnels_col.find(query).sort("_id", 1).limit(50))
         else:
-            if any(x in msg_l for x in [
-                "danh sách", "có những ai", "nhân sự nào",
-                "nhân viên nào", "trong hệ thống", "hiện có", "đang có"
-            ]):
+            if any(x in msg_l for x in ["danh sách", "có những ai", "nhân sự nào", "nhân viên nào", "trong hệ thống"]):
                 docs = list(personnels_col.find({}).sort("_id", 1).limit(50))
             else:
                 docs = list(personnels_col.find({}).sort("_id", 1).limit(10))
 
-        context["personnels_count"] = len(docs)
         context["personnels"] = [self.serialize_doc(d) for d in docs]
-        if ma_nv_list:
-            context["requested_ma_nv"] = ma_nv_list
         return context
 
     def fetch_events_context(self, user_message: str):
@@ -550,7 +409,7 @@ Mục tiêu cuối cùng:
         if "bao nhiêu" in msg_l or "đếm" in msg_l or "số lượng" in msg_l:
             context["events_count"] = events_col.count_documents(query)
 
-        context["events"] = [self.normalize_event_for_ai(d) for d in docs]
+        context["events"] = [self.serialize_doc(d) for d in docs]
         return context
 
     def fetch_context(self, user_message: str, intent: str):
@@ -560,41 +419,8 @@ Mục tiêu cuối cùng:
             return self.fetch_events_context(user_message)
         return {}
 
-    # =========================
-    # HISTORY / MESSAGE BUILDING
-    # =========================
-    def looks_like_reasoning_leak(self, text: str) -> bool:
-        if not text:
-            return False
-
-        lower_text = text.lower().strip()
-        suspicious = [
-            "okay, the user is asking",
-            "the user is asking",
-            "first, i need to",
-            "looking at the current query",
-            "according to the principles",
-            "let me draft a response",
-            "but wait",
-            "possible response:",
-            "the user just said",
-            "i should respond",
-            "looking back",
-            "i need to make sure",
-        ]
-        return any(x in lower_text for x in suspicious)
-
-    def filter_history(self, history: list[dict]) -> list[dict]:
-        cleaned = []
-        for item in history:
-            content = (item or {}).get("content", "")
-            if not self.looks_like_reasoning_leak(content):
-                cleaned.append(item)
-        return cleaned
-
     def build_messages(self, session_id: str, user_message: str, context=None):
         history = self._conversations.get(session_id, [])
-        history = self.filter_history(history)
 
         messages = [{"role": "system", "content": self.system_prompt}]
         messages.extend(history[-8:])
@@ -611,94 +437,11 @@ Mục tiêu cuối cùng:
                 )
             })
 
+        # câu hỏi thật của user luôn nằm cuối
         messages.append({"role": "user", "content": user_message})
+
         return messages
 
-    # =========================
-    # OUTPUT SANITIZE
-    # =========================
-    def clean_foreign_tokens(self, text: str) -> str:
-        if not text:
-            return text
-
-        replacements = {
-            "единственный": "duy nhất",
-            "T姿势": "Tư thế",
-            "姿势": "tư thế",
-        }
-
-        for bad, good in replacements.items():
-            text = text.replace(bad, good)
-
-        # Xóa ký tự lẻ thường gặp của Nga / Trung nếu còn sót
-        text = re.sub(r"[\u0400-\u04FF]+", "", text)   # Cyrillic
-        text = re.sub(r"[\u4E00-\u9FFF]+", "", text)   # CJK
-
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        text = re.sub(r"[ \t]{2,}", " ", text).strip()
-        return text
-
-    def sanitize_assistant_output(self, text: str) -> str:
-        if not text:
-            return text
-
-        text = self.clean_foreign_tokens(text)
-
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if not lines:
-            return ""
-
-        meta_starts = (
-            "okay, the user is asking",
-            "the user is asking",
-            "first, i need to",
-            "looking at the current query",
-            "according to the principles",
-            "let me draft a response",
-            "but wait",
-            "possible response:",
-            "the user just said",
-            "i should respond",
-            "looking back",
-            "i need to make sure",
-        )
-
-        cleaned_lines = []
-        for line in lines:
-            low = line.lower()
-            if low.startswith(meta_starts):
-                continue
-            if low.startswith("assistant:"):
-                line = line[len("assistant:"):].strip()
-            cleaned_lines.append(line)
-
-        cleaned = "\n".join(cleaned_lines).strip()
-        cleaned = self.clean_foreign_tokens(cleaned)
-
-        # Nếu vẫn còn lộ reasoning thì bỏ luôn để chat() fallback
-        if self.looks_like_reasoning_leak(cleaned):
-            return ""
-
-        return cleaned
-
-    def fallback_reply_for_failed_ai(self, user_message: str, intent: str) -> str:
-        msg = self.normalize_text(user_message)
-
-        small_talk = self.handle_small_talk_vi(user_message)
-        if small_talk:
-            return small_talk
-
-        if intent == "personnels":
-            return "Tôi đã nhận câu hỏi về nhân sự, nhưng hiện tại phần trả lời AI đang gặp lỗi. Bạn có thể hỏi lại ngắn gọn hơn hoặc tra theo mã nhân viên cụ thể."
-        if intent == "events":
-            return "Tôi đã lấy dữ liệu sự kiện từ hệ thống, nhưng hiện tại phần diễn giải đang gặp lỗi. Bạn có thể yêu cầu tôi hiển thị lại ngắn gọn hơn."
-        if "tiếng việt" in msg:
-            return "Vâng, tôi sẽ trả lời hoàn toàn bằng tiếng Việt."
-        return "Tôi xin lỗi, vừa rồi phần trả lời gặp lỗi định dạng. Bạn vui lòng gửi lại câu hỏi, tôi sẽ trả lời ngắn gọn bằng tiếng Việt."
-
-    # =========================
-    # OPENROUTER
-    # =========================
     def _call_openrouter(self, messages: list[dict]) -> str:
         if not self.openrouter_api_key:
             raise ValueError("OPENROUTER_API_KEY chưa được cấu hình")
@@ -712,27 +455,12 @@ Mục tiêu cuối cùng:
         payload = {
             "model": self.model_name,
             "messages": messages,
-            "temperature": 0.1,
+            "temperature": 0.2,
             "top_p": 0.9,
-            # BỎ max_tokens để tránh bị cụt câu
+            "max_tokens": 500,
         }
 
         response = requests.post(url, headers=headers, json=payload, timeout=60)
-
-        if response.status_code == 429:
-            try:
-                data = response.json()
-                message = data.get("error", {}).get("message", "")
-            except Exception:
-                message = response.text
-
-            if "free-models-per-day" in message or "Rate limit exceeded" in message:
-                return (
-                    "Hiện tại dịch vụ AI đã hết lượt dùng miễn phí trong ngày. "
-                    "Bạn có thể thử lại sau khi quota được đặt lại hoặc nạp thêm credit trên OpenRouter."
-                )
-
-            raise RuntimeError(f"OpenRouter API error: 429 {message}")
 
         if response.status_code != 200:
             raise RuntimeError(
@@ -747,36 +475,12 @@ Mục tiêu cuối cùng:
         content = choices[0].get("message", {}).get("content", "")
         return (content or "").strip()
 
-    def generate_reply(self, messages: list[dict], user_message: str, intent: str) -> str:
-        raw = self._call_openrouter(messages)
-        clean = self.sanitize_assistant_output(raw)
-        if clean:
-            return clean
-        return self.fallback_reply_for_failed_ai(user_message, intent)
-
-    # =========================
-    # SESSION STATE
-    # =========================
-    def get_session_state(self, session_id: str) -> dict:
-        if session_id not in self._session_state:
-            self._session_state[session_id] = {
-                "last_intent": None,
-                "last_context": None,
-                "last_user_message": None,
-            }
-        return self._session_state[session_id]
+    def generate_reply(self, messages: list[dict]) -> str:
+        return self._call_openrouter(messages)
 
     def clear_history(self, session_id: str) -> None:
         self._conversations[session_id] = []
-        self._session_state[session_id] = {
-            "last_intent": None,
-            "last_context": None,
-            "last_user_message": None,
-        }
 
-    # =========================
-    # HEALTH
-    # =========================
     def health(self) -> dict:
         db_ok = False
         db_error = None
@@ -802,9 +506,6 @@ Mục tiêu cuối cùng:
             "model_name": self.model_name,
         }
 
-    # =========================
-    # MAIN CHAT
-    # =========================
     def chat(self, user_message: str, session_id: str = "default") -> dict:
         emit_chat_status("received", {"session_id": session_id})
 
@@ -814,68 +515,27 @@ Mục tiêu cuối cùng:
         if session_id not in self._conversations:
             self._conversations[session_id] = []
 
-        state = self.get_session_state(session_id)
-
         try:
-            # 1) Small talk / yêu cầu chỉ nói tiếng Việt: không gọi model
-            small_talk_reply = self.handle_small_talk_vi(user_message)
-            if small_talk_reply:
-                assistant_message = small_talk_reply
-                intent = "general"
+            intent = self.detect_intent(user_message)
+            emit_chat_status("intent_detected", {"intent": intent})
 
+            if intent == "general":
+                messages = self.build_messages(session_id, user_message, context=None)
+                assistant_message = self.generate_reply(messages)
             else:
-                intent = self.detect_intent(user_message)
-                emit_chat_status("intent_detected", {"intent": intent})
-
-                # 2) Follow-up kiểu "dễ đọc hơn" -> dùng lại context trước
-                if self.is_reformat_followup(user_message) and state.get("last_context"):
-                    emit_chat_status("context_ready", {"intent": state.get("last_intent", "general")})
-                    messages = self.build_messages(
-                        session_id,
-                        f"Hãy trình bày lại nội dung trước đó theo yêu cầu này của người dùng: {user_message}",
-                        context=state["last_context"],
-                    )
-                    assistant_message = self.generate_reply(
-                        messages=messages,
-                        user_message=user_message,
-                        intent=state.get("last_intent", "general"),
-                    )
-                    intent = state.get("last_intent", "general")
-
-                elif intent == "general":
-                    messages = self.build_messages(session_id, user_message, context=None)
-                    assistant_message = self.generate_reply(
-                        messages=messages,
-                        user_message=user_message,
-                        intent=intent,
-                    )
-
+                clarification = self.needs_clarification(user_message, intent)
+                if clarification:
+                    assistant_message = clarification
                 else:
-                    clarification = self.needs_clarification(user_message, intent)
-                    if clarification:
-                        assistant_message = clarification
-                    else:
-                        emit_chat_status("querying_mongo", {"intent": intent})
-                        context = self.fetch_context(user_message, intent)
-                        self.print_context_json(context)
-                        emit_chat_status("context_ready", {"intent": intent})
+                    emit_chat_status("querying_mongo", {"intent": intent})
+                    context = self.fetch_context(user_message, intent)
+                    self.print_context_json(context)
+                    emit_chat_status("context_ready", {"intent": intent})
+                    messages = self.build_messages(session_id, user_message, context=context)
+                    assistant_message = self.generate_reply(messages)
 
-                        state["last_intent"] = intent
-                        state["last_context"] = context
-                        state["last_user_message"] = user_message
-
-                        messages = self.build_messages(session_id, user_message, context=context)
-                        assistant_message = self.generate_reply(
-                            messages=messages,
-                            user_message=user_message,
-                            intent=intent,
-                        )
-
-            # 3) Chỉ lưu history sạch để tránh "nhiễm" reasoning leak
             self._conversations[session_id].append({"role": "user", "content": user_message})
-
-            if assistant_message and not self.looks_like_reasoning_leak(assistant_message):
-                self._conversations[session_id].append({"role": "assistant", "content": assistant_message})
+            self._conversations[session_id].append({"role": "assistant", "content": assistant_message})
 
             if len(self._conversations[session_id]) > 12:
                 self._conversations[session_id] = self._conversations[session_id][-12:]
