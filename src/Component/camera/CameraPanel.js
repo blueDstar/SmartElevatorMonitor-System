@@ -542,7 +542,7 @@ function CameraPanel() {
     });
 
     socketRef.current = socket;
-  }, [clearPolling, pushLog, startPolling]);
+  }, [pushLog]); // clearPolling + startPolling removed: no longer called inside socket handler
 
   const initModule = useCallback(async () => {
     await Promise.allSettled([
